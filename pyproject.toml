@@ -1,0 +1,37 @@
+[project]
+name = "signaliq"
+version = "0.1.0"
+description = "SignalIQ — social intelligence & post generation platform"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions", "node_modules", ".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E","F","W","I","N","UP","B","C4","SIM","RUF","S","ASYNC","PIE"]
+ignore = ["S101", "B008"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/versions", "tests"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: unit tests",
+    "integration: requires real DB/Redis",
+    "api: HTTP layer tests",
+    "slow: takes >5s",
+]

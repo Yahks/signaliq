@@ -1,0 +1,30 @@
+"""Initial extensions and helper functions.
+
+Revision ID: 0001
+Revises:
+Create Date: 2026-09-13
+"""
+from collections.abc import Sequence
+
+from alembic import op
+
+revision: str = "0001"
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.execute('CREATE EXTENSION IF NOT EXISTS "vector"')
+    op.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
+    op.execute('CREATE EXTENSION IF NOT EXISTS "pg_trgm"')
+    op.execute('CREATE EXTENSION IF NOT EXISTS "unaccent"')
+    op.execute('CREATE EXTENSION IF NOT EXISTS "btree_gin"')
+
+
+def downgrade() -> None:
+    op.execute('DROP EXTENSION IF EXISTS "btree_gin"')
+    op.execute('DROP EXTENSION IF EXISTS "unaccent"')
+    op.execute('DROP EXTENSION IF EXISTS "pg_trgm"')
+    op.execute('DROP EXTENSION IF EXISTS "pgcrypto"')
+    op.execute('DROP EXTENSION IF EXISTS "vector"')

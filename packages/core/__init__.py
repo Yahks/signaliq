@@ -1,0 +1,1 @@
+"""Cross-cutting primitives: config, logging, errors."""

@@ -1,0 +1,72 @@
+# SignalIQ — runtime dependencies
+# Python 3.12 · pinned to installed versions as of 2026-09-19
+# Run: pip install -r requirements.txt
+
+# --- Web framework ---
+fastapi
+uvicorn[standard]
+python-multipart
+websockets
+starlette
+email-validator
+
+# --- Validation & settings ---
+pydantic
+pydantic-settings
+python-dotenv
+
+# --- Database ---
+sqlalchemy[asyncio]
+asyncpg
+psycopg2-binary
+alembic
+pgvector
+greenlet
+
+# --- Cache / queue ---
+redis
+celery[redis]
+
+# --- Auth & security ---
+python-jose[cryptography]
+PyJWT
+passlib[argon2]
+argon2-cffi
+
+# --- HTTP ---
+httpx
+
+# --- Market data ---
+# Yahoo Finance client. Handles Yahoo's consent cookie and
+# crumb token so raw HTTP requests don't get 429'd.
+yfinance
+
+# --- AI providers ---
+google-genai
+google-api-python-client
+google-ai-generativelanguage
+grpcio-status
+
+# --- Embeddings, NLP, data ---
+numpy
+scipy
+pandas
+scikit-learn
+hdbscan
+langdetect
+datasketch
+feedparser
+trafilatura
+lxml_html_clean
+
+# --- HTML parsing (scraper) ---
+selectolax
+
+# --- Observability ---
+structlog
+
+# --- Utilities ---
+PyYAML
+tqdm
+psycopg[binary]
+Pillow>=10

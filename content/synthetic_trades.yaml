@@ -1,0 +1,101 @@
+account_equity: 200000.0
+trades:
+- date: '2026-10-02T14:45:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: breakout above prior high with volume surge
+  entry: 15000.0
+  contracts: 4
+  stop: 14983.5
+  atr_at_entry: 22.0
+  exit: 15033.0
+  exit_reason: target
+  result: 2640.0
+- date: '2026-10-04T15:00:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: momentum entry after 20-EMA cross
+  entry: 15100.0
+  contracts: 3
+  stop: 15079.0
+  atr_at_entry: 28.0
+  exit: 15078.0
+  exit_reason: stop
+  result: -1320.0
+- date: '2026-10-07T15:30:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: pull-back to 10-min low near EMA
+  entry: 14950.0
+  contracts: 5
+  stop: 14936.5
+  atr_at_entry: 18.0
+  exit: 14977.0
+  exit_reason: target
+  result: 2700.0
+- date: '2026-10-03T14:30:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: breakout above prior day high +1% with volume 1.6x
+  entry: 20200.0
+  contracts: 4
+  stop: 20182.0
+  atr_at_entry: 24.0
+  exit: 20236.0
+  exit_reason: profit target hit
+  result: 2880.0
+- date: '2026-10-04T15:10:00+00:00'
+  instrument: NQ
+  direction: short
+  setup: "pullback to 10\u2011min low near 20\u2011EMA"
+  entry: 20350.0
+  contracts: 3
+  stop: 20371.0
+  atr_at_entry: 28.0
+  exit: 20372.0
+  exit_reason: stop loss hit
+  result: -1320.0
+- date: '2026-10-05T13:45:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: breakout above prior day high +1% with volume 1.7x
+  entry: 20400.0
+  contracts: 4
+  stop: 20383.5
+  atr_at_entry: 22.0
+  exit: 20433.0
+  exit_reason: profit target hit
+  result: 2640.0
+- date: '2026-10-06T14:55:00+00:00'
+  instrument: NQ
+  direction: short
+  setup: reversal after 0.5% drop in first 15m
+  entry: 20550.0
+  contracts: 3
+  stop: 20574.75
+  atr_at_entry: 33.0
+  exit: 20501.0
+  exit_reason: profit target hit
+  result: 2940.0
+- date: '2026-10-07T14:20:00+00:00'
+  instrument: NQ
+  direction: long
+  setup: "pullback to 10\u2011min low near 20\u2011EMA"
+  entry: 20600.0
+  contracts: 5
+  stop: 20585.75
+  atr_at_entry: 19.0
+  exit: 20585.0
+  exit_reason: stop loss hit
+  result: -1500.0
+- date: '2026-10-08T15:00:00+00:00'
+  instrument: NQ
+  direction: short
+  setup: breakout above prior day high +1% with volume 1.8x
+  entry: 20700.0
+  contracts: 3
+  stop: 20722.5
+  atr_at_entry: 30.0
+  exit: 20655.0
+  exit_reason: profit target hit
+  result: 2700.0

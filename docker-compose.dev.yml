@@ -1,0 +1,59 @@
+# Development overrides. Mounts source code so edits reload live.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Or alias it:
+#   alias ddev='docker compose -f docker-compose.yml -f docker-compose.dev.yml'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
+      - ./alembic.ini:/app/alembic.ini
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: watchmedo auto-restart --directory=/app/packages --directory=/app/apps --pattern='*.py' --recursive -- celery -A apps.worker.celery_app worker --loglevel=info -Q default,ingestion
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - ./scripts:/app/scripts
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    command: npm run dev
+    volumes:
+      - ./apps/web/src:/app/src
+      - ./apps/web/public:/app/public
+      - ./apps/web/next.config.mjs:/app/next.config.mjs
+      - ./apps/web/package.json:/app/package.json
