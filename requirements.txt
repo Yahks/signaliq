@@ -70,3 +70,8 @@ PyYAML
 tqdm
 psycopg[binary]
 Pillow>=10
+
+# --- Charts ---
+# Server-side PNG rendering for movers, market_analysis, and the
+# performance equity curve. Agg backend only (no display).
+matplotlib

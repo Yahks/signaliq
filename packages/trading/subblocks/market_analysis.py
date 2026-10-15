@@ -19,6 +19,7 @@ from ..editorial import compose_system_prompt
 from ..market_conditions import (
     format_conditions_block,
     get_market_conditions,
+    summarize_historical_context,
     summarize_market_events,
 )
 from ..post_process import post_process_article
@@ -26,6 +27,82 @@ from ..registers._selector import pick_register
 from ..registers import REGISTERS
 from .base import call_llm_json_verified, persist_post
 from .market_analysis_templates import pick_template
+
+
+def _insert_table_into_body(
+    body: str, table: str, trade_date: str | None,
+) -> tuple[str, bool]:
+    """Insert the recent-trades markdown table into the article body.
+
+    Called after the model returns. The model reliably writes the
+    trade paragraph but refuses to reproduce the markdown table in
+    continuous prose, so we insert it in code.
+
+    Returns (new_body, inserted). If `table` is empty, or the body
+    already contains a markdown table header, returns (body, False).
+
+    Insertion point: the paragraph that contains the featured trade's
+    date. Insert after that paragraph. If the date is not found, fall
+    back to inserting before the final one-sentence paragraph (the
+    reframe line) and before the checklist.
+    """
+    if not table or not body:
+        return body, False
+    if "| Date | Instrument |" in body:
+        return body, False
+
+    # Paragraphs are separated by a blank line.
+    paras = body.split("\n\n")
+
+    # Normalize unicode hyphens/dashes so the date search matches
+    # regardless of which hyphen character the model emitted.
+    def _norm(s: str) -> str:
+        return (
+            s.replace("\u2010", "-")
+             .replace("\u2011", "-")
+             .replace("\u2012", "-")
+             .replace("\u2013", "-")
+             .replace("\u2014", "-")
+             .replace("\u2212", "-")
+        )
+
+    # Preferred: find the paragraph that contains the trade date.
+    insert_idx = None
+    if trade_date:
+        for i, para in enumerate(paras):
+            if trade_date in _norm(para):
+                insert_idx = i + 1
+                break
+
+    # Fallback: insert before the last short paragraph (typically
+    # the reframe sentence, which is 15-30 words).
+    if insert_idx is None:
+        for i in range(len(paras) - 1, -1, -1):
+            words = len(paras[i].split())
+            if 10 <= words <= 40:
+                insert_idx = i
+                break
+
+    # Last-resort fallback: before the final paragraph.
+    if insert_idx is None:
+        insert_idx = max(0, len(paras) - 1)
+
+    new_paras = paras[:insert_idx] + [table] + paras[insert_idx:]
+    return "\n\n".join(new_paras), True
+
+from .market_analysis_account import (
+    summarize_account_equity,
+    format_account_block,
+)
+from .market_analysis_rotation import (
+    pick_combination,
+    pick_unused_trade,
+    get_recent_trades,
+    mark_trade_used,
+    log_run,
+    reset_trades_if_due,
+    _recent_combinations,
+)
 
 log = get_logger(__name__)
 
@@ -262,29 +339,105 @@ async def generate(
         log.warning("market_analysis.no_conditions", org_id=org_id[:8])
         return {"status": "no_market_conditions", "slug": subblock["slug"]}
 
-    # 2. The market's own report — last 24 hours of events, summarized.
+    # 2. Rotation picks. Reset trade pool if every trade has
+    # been used (or the reset window has passed).
+    await reset_trades_if_due(session, org_id=org_id)
+
+    recent_combos = await _recent_combinations(session, org_id=org_id)
+    window_days, angle, focus = pick_combination(recent_combos)
+    # Trade block disabled: trade_log rows are synthetic.
+    # Re-enable when real trades are available.
+    featured_trade = None
+    recent_trades = []
+
+    # 3. The market's own report — last 24 hours of events.
     events_summary = await summarize_market_events(session, org_id=org_id)
 
-    # 3. Build the source block. Two sections, labeled.
+    # 4. Historical context, over the picked window.
+    historical_context = await summarize_historical_context(
+        session, org_id=org_id, window_days=window_days,
+    )
+
+    # 5. Trade block — featured trade + recent trades table.
+    def _fmt(v):
+        if v is None:
+            return "None"
+        try:
+            f = float(v)
+            return str(int(f)) if f == int(f) else format(f, ".2f")
+        except Exception:
+            return str(v)
+
+    # Featured trade paragraph (feeds the source-data section).
+    featured_parts = []
+    if featured_trade:
+        t = featured_trade
+        featured_parts.append(
+            "--- THE TRADE I WANT TO TALK ABOUT ---"
+        )
+        line = (
+            f"{t['instrument']} {t['direction']} on "
+            f"{str(t['traded_at'])[:10]}. "
+            f"Entry {_fmt(t['entry'])}, stop {_fmt(t.get('stop'))}, "
+            f"target {_fmt(t.get('target'))}, exit {_fmt(t['exit'])}. "
+            f"Result {_fmt(t['result'])}. "
+            f"Hold time {t.get('hold_time')}. "
+            f"Exit reason: {t.get('exit_reason')}."
+        )
+        featured_parts.append(line)
+        if t.get("lesson"):
+            featured_parts.append(
+                "Lesson I wrote at the time: " + str(t["lesson"])
+            )
+        if t.get("setup"):
+            featured_parts.append("Setup: " + str(t["setup"]))
+    featured_trade_block = (
+        "\n".join(featured_parts) if featured_parts else ""
+    )
+
+    # Recent-trades markdown table (feeds the beat 11 instruction).
+    table_parts = []
+    if recent_trades:
+        table_parts.append(
+            "| Date | Instrument | Direction | Entry | Exit | Result |"
+        )
+        table_parts.append(
+            "|------|------------|-----------|-------|------|--------|"
+        )
+        for t in recent_trades:
+            table_parts.append(
+                f"| {str(t['traded_at'])[:10]} | {t['instrument']} | "
+                f"{t['direction']} | {_fmt(t['entry'])} | {_fmt(t['exit'])} | "
+                f"{_fmt(t['result'])} |"
+            )
+    recent_trades_table = "\n".join(table_parts) if table_parts else ""
+
+    # Account equity block. Computed from trade_log; inserted
+    # into the article in code, attached to the trade table.
+    # Account block disabled: computed from synthetic trades.
+    account_block = ""
+
+    # 6. Build the source block.
     conditions_block = format_conditions_block(mc, research_block=None)
+    source_block = (
+        "--- MY READINGS AND PROCESS ---\n"
+        + conditions_block
+    )
     if events_summary:
-        source_block = (
-            "--- MY READINGS AND PROCESS ---\n"
-            + conditions_block
-            + "\n\n--- THE MARKET'S OWN REPORT (last 24 hours) ---\n"
+        source_block += (
+            "\n\n--- THE MARKET'S OWN REPORT (last 24 hours) ---\n"
             + events_summary
         )
-    else:
-        source_block = (
-            "--- MY READINGS AND PROCESS ---\n"
-            + conditions_block
+    if historical_context:
+        source_block += (
+            f"\n\n--- HISTORICAL CONTEXT (last {window_days} days) ---\n"
+            + historical_context
         )
 
-    # 4. Register — always "market_analysis", single.
+    # 7. Register and CTA.
     register = "market_analysis"
     target_words = 1000
 
-    # 5. CTA. One form. The blog offers the trader's scan log.
     from packages.core.config import get_settings as _get_settings
     _url = _get_settings().product_url
     cta_text = (
@@ -294,14 +447,19 @@ async def generate(
         f"email me and I'll send it: {_url}"
     )
 
-    # 6. Assemble the user prompt.
+    # 8. Template and user prompt.
     template = pick_template()
+    template_id = "observation"  # single template for now
     user_prompt = template.format(
         source_block=source_block,
+        angle=angle,
+        focus=focus,
+        window_days=window_days,
         cta_text=cta_text,
     )
 
-    # 7. Call the LLM. No form/tone/voice — the register covers it.
+    # 9. Call the LLM. skip_standard=True means the template is
+    # the only shape contract; no STANDARD, no OUTPUT FORMAT.
     post = await call_llm_json_verified(
         session,
         org_id=org_id,
@@ -322,6 +480,14 @@ async def generate(
             "cta_text": cta_text,
             "market_conditions": mc,
             "events_summary": events_summary,
+            "historical_context": historical_context,
+            "featured_trade_block": featured_trade_block,
+            "recent_trades_table": recent_trades_table,
+            "account_block": account_block,
+            "angle": angle,
+            "focus": focus,
+            "window_days": window_days,
+            "template_id": template_id,
             "target_words": target_words,
         },
         target_words=target_words,
@@ -340,6 +506,28 @@ async def generate(
         log.warning("market_analysis.post_process_failed",
                     error=str(_pp)[:200])
 
+    # Insert the recent-trades table in code. The model refuses to
+    # reproduce it in continuous prose, so we do it deterministically.
+    if recent_trades_table:
+        trade_date = None
+        if featured_trade:
+            try:
+                trade_date = str(featured_trade["traded_at"])[:10]
+            except Exception:
+                trade_date = None
+        combined_block = recent_trades_table
+        if account_block:
+            combined_block = recent_trades_table + "\n\n" + account_block
+        new_body, inserted = _insert_table_into_body(
+            post.body, combined_block, trade_date,
+        )
+        if inserted:
+            post.body = new_body
+            post.word_count = len(new_body.split())
+        else:
+            log.warning("market_analysis.table_not_inserted",
+                        post_id_pre=post.title[:40])
+
     post_id = await persist_post(
         session,
         org_id=org_id,
@@ -350,11 +538,71 @@ async def generate(
             "cta_text": cta_text,
             "market_conditions": mc,
             "events_summary": events_summary,
+            "historical_context": historical_context,
+            "featured_trade_block": featured_trade_block,
+            "recent_trades_table": recent_trades_table,
+            "account_block": account_block,
+            "angle": angle,
+            "focus": focus,
+            "window_days": window_days,
+            "template_id": template_id,
             "target_words": target_words,
         },
         source_urls=[],
         symbols=[],
     )
+
+    # 9b. Render the AAPL yearly chart and append it to the body.
+    # Failure is non-fatal — the article persists without a chart.
+    try:
+        from ..chart import render_yearly_chart
+        chart_url_path = await render_yearly_chart("AAPL")
+        if chart_url_path:
+            chart_md = (
+                "\n\n![AAPL yearly chart](" + chart_url_path + ")\n\n"
+                + "[Download the chart](" + chart_url_path + ")\n"
+            )
+            post.body = post.body.rstrip() + chart_md
+            await session.execute(sql_text(
+                "UPDATE trading_posts SET body = :body, "
+                "word_count = :wc WHERE id = :pid"
+            ), {
+                "body": post.body,
+                "wc": len(post.body.split()),
+                "pid": post_id,
+            })
+            log.info("market_analysis.chart_attached",
+                     post_id=post_id[:8], url=chart_url_path)
+    except Exception as exc:
+        log.warning("market_analysis.chart_failed",
+                    error=str(exc)[:200])
+
+    # 10. Mark the featured trade as used and log the run.
+    if featured_trade:
+        try:
+            await mark_trade_used(
+                session,
+                trade_id=featured_trade["id"],
+                post_id=post_id,
+            )
+        except Exception as exc:
+            log.warning("market_analysis.mark_trade_failed",
+                        error=str(exc)[:200])
+    try:
+        await log_run(
+            session,
+            org_id=org_id,
+            trade_id=featured_trade["id"] if featured_trade else None,
+            window_days=window_days,
+            angle=angle,
+            focus=focus,
+            template_id=template_id,
+            post_id=post_id,
+        )
+    except Exception as exc:
+        log.warning("market_analysis.log_run_failed",
+                    error=str(exc)[:200])
+
     await session.commit()
 
     log.info(

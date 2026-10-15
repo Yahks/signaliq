@@ -161,3 +161,138 @@ def _render_png(symbol: str, bars: list[dict], target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(target, format="png", bbox_inches="tight")
     plt.close(fig)
+
+
+async def render_yearly_chart(
+    symbol: str,
+    *,
+    years: int = 10,
+    force: bool = False,
+) -> str | None:
+    """Render a yearly-close chart for `symbol`.
+
+    Fetches monthly bars, resamples to one bar per calendar year,
+    drops the current (incomplete) year, keeps the last `years`
+    complete years, and renders a log-scale line chart.
+
+    Default is 10 complete years — recent enough to be meaningful,
+    long enough to show structure. Returns a URL like
+    "/static/charts/AAPL-yearly-10yr-2026-10-15.png".
+
+    Log scale because a decade of growth spans an order of
+    magnitude. Returns None on any failure.
+    """
+    if not symbol:
+        return None
+
+    today = date.today().isoformat()
+    safe = _safe_symbol(symbol)
+    filename = f"{safe}-yearly-{years}yr-{today}.png"
+    target = _CHART_DIR / filename
+
+    if target.exists() and not force:
+        log.info("chart.cache_hit", symbol=symbol, file=filename)
+        return f"/static/charts/{filename}"
+
+    from packages.ingestion.sources.market_data import fetch_bars
+    try:
+        bars = await fetch_bars(symbol, range_="max", interval="1mo")
+    except Exception as exc:
+        log.warning("chart.bars_failed", symbol=symbol, error=str(exc)[:200])
+        return None
+    if not bars:
+        log.warning("chart.no_bars", symbol=symbol)
+        return None
+
+    yearly: dict[int, float] = {}
+    for b in bars:
+        try:
+            y = int(str(b["date"])[:4])
+            c = float(b["close"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        yearly[y] = c
+
+    # Drop the current year — it hasn't closed. A yearly chart
+    # shows only finished years.
+    current_year = date.today().year
+    yearly.pop(current_year, None)
+
+    if len(yearly) < 3:
+        log.warning("chart.yearly_too_few_years",
+                    symbol=symbol, years=len(yearly))
+        return None
+
+    year_list = sorted(yearly.keys())[-years:]
+    closes = [yearly[y] for y in year_list]
+
+    try:
+        _render_yearly_png(symbol, year_list, closes, target)
+    except Exception as exc:
+        log.warning("chart.render_failed", symbol=symbol, error=str(exc)[:200])
+        return None
+
+    log.info(
+        "chart.yearly_rendered",
+        symbol=symbol,
+        years=len(year_list),
+        file=filename,
+        bytes=target.stat().st_size,
+    )
+    return f"/static/charts/{filename}"
+
+
+def _render_yearly_png(
+    symbol: str, years: list[int], closes: list[float], target: Path,
+) -> None:
+    """Render the yearly chart to a PNG file. Separated for testing."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 3.5), dpi=100)
+
+    ax.plot(years, closes, color="#3b82f6", linewidth=1.6)
+    ax.fill_between(
+        years, closes, min(closes) * 0.9,
+        color="#3b82f6", alpha=0.08,
+    )
+
+    ax.set_yscale("log")
+    ax.grid(True, linestyle="--", linewidth=0.5, color="#e5e7eb")
+
+    first = closes[0]
+    last = closes[-1]
+    pct = (last - first) / first * 100 if first else 0
+    arrow = "\u25b2" if pct >= 0 else "\u25bc"
+    color = "#16a34a" if pct >= 0 else "#dc2626"
+    ax.set_title(
+        f"{symbol}  \u00b7  yearly close  {years[0]}\u2013{years[-1]}  \u00b7  "
+        f"{arrow} {pct:+.0f}%",
+        fontsize=11,
+        color=color,
+        loc="left",
+        pad=8,
+    )
+
+    ax.set_ylabel("Price (log)", fontsize=9, color="#6b7280")
+    ax.tick_params(axis="both", labelsize=8, colors="#6b7280")
+
+    ax.annotate(
+        f"{last:.2f}",
+        xy=(years[-1], last),
+        xytext=(6, 0), textcoords="offset points",
+        fontsize=9, color="#111827", va="center", fontweight="bold",
+    )
+
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.spines["left"].set_color("#d1d5db")
+    ax.spines["bottom"].set_color("#d1d5db")
+
+    fig.tight_layout()
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(target, format="png", bbox_inches="tight")
+    plt.close(fig)

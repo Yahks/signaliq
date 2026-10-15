@@ -315,3 +315,151 @@ async def summarize_market_events(
         sentences.append("Persistent movers: " + "; ".join(pieces) + ".")
 
     return " ".join(sentences)
+
+
+async def summarize_historical_context(
+    session: AsyncSession,
+    *,
+    org_id: str,
+    window_days: int = 90,
+) -> str:
+    """Read market_history and produce a historical context paragraph.
+
+    Deterministic. No LLM. Returns empty string if there are
+    fewer than 3 rows for any symbol, or no symbols at all.
+    """
+    from datetime import date as _date, timedelta as _td
+
+    cutoff = _date.today() - _td(days=window_days)
+    try:
+        rows = (await session.execute(sql_text("""
+            SELECT symbol, trade_date, close
+            FROM market_history
+            WHERE org_id = :oid
+              AND deleted_at IS NULL
+              AND trade_date >= :cutoff
+            ORDER BY symbol, trade_date
+        """), {"oid": org_id, "cutoff": cutoff})).mappings().all()
+    except Exception as exc:
+        log.warning("market_history.read_failed", error=str(exc)[:200])
+        return ""
+
+    if not rows:
+        return ""
+
+    by_symbol: dict[str, list] = {}
+    for r in rows:
+        by_symbol.setdefault(r["symbol"], []).append(
+            (r["trade_date"], float(r["close"]))
+        )
+
+    for sym in by_symbol:
+        by_symbol[sym].sort()
+
+    def pct_return(series, n):
+        if len(series) < n + 1:
+            return None
+        old = series[-n - 1][1]
+        new = series[-1][1]
+        if old == 0:
+            return None
+        return (new - old) / old * 100.0
+
+    def percentile(series, value):
+        closes = [c for _, c in series]
+        if not closes:
+            return None
+        below = sum(1 for c in closes if c <= value)
+        return int(round(below / len(closes) * 100))
+
+    def median(series):
+        closes = sorted(c for _, c in series)
+        if not closes:
+            return None
+        n = len(closes)
+        mid = n // 2
+        if n % 2 == 1:
+            return closes[mid]
+        return (closes[mid - 1] + closes[mid]) / 2.0
+
+    sentences = []
+    sentences.append(
+        "Historical context for the last " + str(window_days)
+        + " trading days:"
+    )
+
+    friendly = {
+        "^VIX": "VIX",
+        "SPY": "SPY",
+        "MDY": "MDY",
+        "IWM": "IWM",
+        "TLT": "TLT",
+        "GLD": "GLD",
+        "HYG": "HYG",
+        "UUP": "UUP",
+    }
+
+    for sym in sorted(by_symbol.keys()):
+        series = by_symbol[sym]
+        if len(series) < 3:
+            continue
+        name = friendly.get(sym, sym)
+        latest = series[-1][1]
+        lo = min(c for _, c in series)
+        hi = max(c for _, c in series)
+        med = median(series)
+        p = percentile(series, latest)
+        ret20 = pct_return(series, 20)
+        parts = []
+        parts.append(name + " closed at " + format(latest, ".2f") + ".")
+        parts.append("90-day range " + format(lo, ".2f") + "-" + format(hi, ".2f") + ".")
+        if med is not None:
+            parts.append("Median " + format(med, ".2f") + ".")
+        if p is not None:
+            parts.append("Current print is at the " + str(p) + "th percentile.")
+        if ret20 is not None:
+            sign = "+" if ret20 >= 0 else ""
+            parts.append("20-session return " + sign + format(ret20, ".2f") + "%.")
+        sentences.append(" ".join(parts))
+
+    spy = by_symbol.get("SPY")
+    iwm = by_symbol.get("IWM")
+    if spy and iwm and len(spy) >= 21 and len(iwm) >= 21:
+        s_ret = pct_return(spy, 20)
+        i_ret = pct_return(iwm, 20)
+        if s_ret is not None and i_ret is not None:
+            diff = s_ret - i_ret
+            sign = "+" if diff >= 0 else ""
+            sentences.append(
+                "SPY vs IWM over 20 sessions: SPY "
+                + ("+" if s_ret >= 0 else "") + format(s_ret, ".2f") + "%, "
+                + "IWM "
+                + ("+" if i_ret >= 0 else "") + format(i_ret, ".2f") + "%. "
+                + "Spread " + sign + format(diff, ".2f") + " points."
+            )
+
+    tlt = by_symbol.get("TLT")
+    if tlt and spy and len(tlt) >= 21 and len(spy) >= 21:
+        t_ret = pct_return(tlt, 20)
+        s_ret = pct_return(spy, 20)
+        if t_ret is not None and s_ret is not None:
+            sentences.append(
+                "TLT vs SPY over 20 sessions: TLT "
+                + ("+" if t_ret >= 0 else "") + format(t_ret, ".2f") + "%, "
+                + "SPY "
+                + ("+" if s_ret >= 0 else "") + format(s_ret, ".2f") + "%."
+            )
+
+    vix = by_symbol.get("^VIX")
+    if vix and spy and len(vix) >= 21 and len(spy) >= 21:
+        v_ret = pct_return(vix, 20)
+        s_ret = pct_return(spy, 20)
+        if v_ret is not None and s_ret is not None:
+            direction = "inverse" if (v_ret * s_ret) < 0 else "same-direction"
+            sentences.append(
+                "VIX vs SPY over 20 sessions: " + direction + " move. "
+                + "VIX " + ("+" if v_ret >= 0 else "") + format(v_ret, ".2f") + "%, "
+                + "SPY " + ("+" if s_ret >= 0 else "") + format(s_ret, ".2f") + "%."
+            )
+
+    return "\n".join(sentences) if sentences else ""

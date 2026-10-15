@@ -790,7 +790,11 @@ def _check_table_prohibition(text: str, register: str) -> list[str]:
 
     if not line_tables:
         return []
-    if len(line_tables) > 1:
+    # market_analysis produces two tables by design: the recent-
+    # trades table and the account equity curve. Every other
+    # register allows exactly one.
+    max_tables = 2 if register == "market_analysis" else 1
+    if len(line_tables) > max_tables:
         return [f"multiple tables: {len(line_tables)}"]
     header = line_tables[0][0]
     required = ("Date", "Entry", "Result")
