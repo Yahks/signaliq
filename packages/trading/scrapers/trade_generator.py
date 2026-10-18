@@ -375,14 +375,17 @@ async def ensure_trades_for(
         # Real OHLC for the bars between entry and exit. Feeds the
         # template's THE MOMENT and THE HESITATION beats. Every
         # bar time, open, high, low, close comes from market_history.
-        _pa = ["", "PRICE ACTION (entry to exit):"]
+        _pa = [
+            "",
+            "PRICE ACTION (entry to exit). All prices in USD per share.",
+        ]
         for _k in range(i, j + 1):
             _bt = bar_times[_k]
             _role = "entry" if _k == i else ("exit" if _k == j else "mid")
             _pa.append(
-                f"  {_bt} [{_role}] "
-                f"open {opens[_k]:.2f}, high {highs[_k]:.2f}, "
-                f"low {lows[_k]:.2f}, close {closes[_k]:.2f}"
+                f"  {_bt} UTC [{_role}] "
+                f"open ${opens[_k]:.2f}, high ${highs[_k]:.2f}, "
+                f"low ${lows[_k]:.2f}, close ${closes[_k]:.2f}"
             )
         setup_detail = "\n".join(_pa)
 
