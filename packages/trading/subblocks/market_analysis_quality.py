@@ -127,9 +127,15 @@ _PRICE_RE = re.compile(r"\b\d{2,4}\.\d{2}\b")
 _DOLLAR_RE = re.compile(r"\$\d[\d,]*")
 _PCT_RE = re.compile(r"\b\d+(?:\.\d+)?\s*%")
 _EMOTION_PATTERNS = [
+    # Actions that name an emotional decision
     r"\b(?:I (?:ignored|refused|couldn'?t|could not|wanted|told myself|let|let my|let the|convinced myself))\b",
+    # Physical reactions
+    r"\b(?:my (?:hand|heart|jaw|breath)|I (?:froze|panicked|hesitated))\b",
+    # Internal states
     r"\b(?:denial|refus(?:al|ed)|ego|tilt|impulse|tempted)\b",
-    r"\b(?:I was (?:angry|frustrated|scared|afraid|desperate))\b",
+    r"\b(?:I was (?:angry|frustrated|scared|afraid|desperate|ashamed))\b",
+    # Force / override
+    r"\b(?:I (?:forced|had to force|pushed|made myself))\b",
 ]
 _META_PATTERNS = [
     r"\bin this (?:article|post|piece)\b",
