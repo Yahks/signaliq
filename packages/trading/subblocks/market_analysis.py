@@ -108,7 +108,7 @@ from .market_analysis_quality import (
     validate_block,
     verify_article,
     log_rejection,
-    build_exact_numbers,
+    build_trade_facts,
     build_charts_block,
 )
 from ..scrapers.market_history import build_stock_report
@@ -682,10 +682,23 @@ async def generate(
     # it comes second. The dashboard, events, historical context,
     # and stock report are context, so they come after.
     _source_parts = []
-    # EXACT NUMBERS goes first. It's the only source of trade
-    # numbers the model is allowed to use. The block was
-    # validated before the LLM call, so this list is complete.
-    _source_parts.append(build_exact_numbers(featured_trade))
+    # THE TRADE in trader notation. No decorated form labels.
+    # No hesitation_note (it's a template). No setup_detail
+    # (the bar dump). No percent_of_equity when None. No
+    # timeframe (conflicts with the hold duration).
+    _trade_facts = build_trade_facts(featured_trade)
+    if _trade_facts is None:
+        log.warning(
+            "market_analysis.trade_inconsistent",
+            symbol=picked_symbol, timeframe=picked_timeframe,
+        )
+        return {
+            "status": "trade_inconsistent",
+            "slug": subblock["slug"],
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
+        }
+    _source_parts.append(_trade_facts)
     # CHARTS - the five charts attached to this article, as
     # text descriptions of what each chart shows.
     _charts_block = await build_charts_block(
@@ -701,8 +714,6 @@ async def generate(
             + "\n\n--- THE BEHAVIORAL MOMENT ---\n"
             + (pattern.get("behavioral_note") or "")
         )
-    if featured_trade_block:
-        _source_parts.append(featured_trade_block)
     _source_parts.append(
         "--- MY READINGS AND PROCESS ---\n" + conditions_block
     )

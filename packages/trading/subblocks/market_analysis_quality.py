@@ -230,77 +230,134 @@ def verify_article(
 
 # ──── EXACT NUMBERS list ────
 
-def build_exact_numbers(t: dict[str, Any]) -> str:
-    """Build the EXACT NUMBERS section. Only called after
-    validate_block() returns empty - the block is guaranteed
-    to have every field."""
-    def _fmt_time(dt):
+def build_trade_facts(t: dict[str, Any]) -> str | None:
+    """Build the THE TRADE section in trader notation.
+
+    Returns None if the trade data is internally inconsistent
+    (result doesn't match exit-entry x shares). The caller
+    should skip to the next trade rather than let the model
+    reconcile broken data.
+
+    Trader notation, not form labels:
+        SBAC short 183.76
+        stop 208.02 (2.71 ATR)
+        target 135.24 (2.0R)
+        size 100 sh
+        exit 184.03
+        2026-06-22  14:46 -> 17:16 (2h30)
+        result: scratch (-27.00 USD, -0.01R)
+        ATR at entry: 8.96 pts
+        stop distance: 24.26 (13.2% of entry)
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    def _q(x):
         try:
-            return dt.strftime("%Y-%m-%d %H:%M UTC")
+            return Decimal(str(x)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP,
+            )
         except Exception:
-            return str(dt)
+            return Decimal("0.00")
 
-    # percent_of_equity may be None on older trades. Compute
-    # it from the trader's starting balance. Every article's
-    # account block shows $200,000; use that constant.
-    pct = t.get("percent_of_equity")
-    if pct is None:
+    entry = _q(t["entry"])
+    stop = _q(t["stop"])
+    target = _q(t["target"])
+    exit_ = _q(t["exit"])
+    atr = _q(t["atr_at_entry"]) if t.get("atr_at_entry") else Decimal("0")
+    shares = int(t["contracts"]) if t.get("contracts") else 0
+    side = t.get("direction", "long")
+    result = _q(t["result"]) if t.get("result") is not None else Decimal("0")
+    sign = -1 if side == "short" else 1
+
+    # Data integrity check. If the result doesn't match
+    # (exit - entry) * sign * shares, the trade data is
+    # internally inconsistent. Return None so the caller
+    # can skip to the next trade.
+    per_share = (exit_ - entry) * sign
+    expected_result = per_share * shares
+    if int(expected_result) != int(result):
+        return None
+
+    stop_dist = abs(stop - entry)
+    stop_atr = (stop_dist / atr) if atr else Decimal("0")
+    target_dist = abs(target - entry)
+    target_r = (target_dist / stop_dist) if stop_dist else Decimal("0")
+    result_r = (per_share / stop_dist) if stop_dist else Decimal("0")
+
+    # Outcome label. Scratch for trades within 5% of flat.
+    # Target for trades above 1.5R. Stop for trades below -0.95R.
+    if abs(result_r) < Decimal("0.05"):
+        outcome = "scratch"
+    elif result_r > Decimal("1.5"):
+        outcome = "target"
+    elif result_r < Decimal("-0.95"):
+        outcome = "stop"
+    else:
+        outcome = "partial"
+
+    def _fmt_time(dt):
+        if dt is None:
+            return ""
         try:
-            pct = (float(t["result"]) / 200000.0) * 100.0
-        except (TypeError, ValueError, KeyError):
-            pct = 0.0
-    pct_str = f"{pct:.2f}"
+            return dt.strftime("%H:%M")
+        except Exception:
+            return str(dt)[:5]
 
-    # Format every numeric field to 2 decimals so the model
-    # reads a clean value instead of a 47-digit float.
-    def _f(key):
+    def _duration(t0, t1):
+        if t0 is None or t1 is None:
+            return ""
         try:
-            return f"{float(t[key]):.2f}"
-        except (TypeError, ValueError, KeyError):
-            return "unknown"
+            mins = int((t1 - t0).total_seconds() // 60)
+            h, m = divmod(mins, 60)
+            return f"{h}h{m:02d}"
+        except Exception:
+            return ""
 
-    # Detect the price unit. Stocks are in USD per share.
-    # Futures would use points; the trade generator only
-    # produces stock trades today.
-    price_unit = "USD per share"
+    entry_t = _fmt_time(t.get("entry_time"))
+    exit_t = _fmt_time(t.get("exit_time"))
+    held = _duration(t.get("entry_time"), t.get("exit_time"))
 
-    return (
-        "--- USE THESE EXACT TRADE NUMBERS ---\n"
-        f"Entry price ({price_unit}): {_f('entry')}\n"
-        f"Stop price ({price_unit}): {_f('stop')}\n"
-        f"Target price ({price_unit}): {_f('target')}\n"
-        f"Exit price ({price_unit}): {_f('exit')}\n"
-        f"Result (USD): {_f('result')}\n"
-        f"Contracts (shares): {t['contracts']}\n"
-        f"ATR at entry (points): {_f('atr_at_entry')}\n"
-        f"Entry time (UTC): {_fmt_time(t['entry_time'])}\n"
-        f"Exit time (UTC): {_fmt_time(t['exit_time'])}\n"
-        f"Percent of equity: {pct_str}%\n"
-        f"Symbol: {t['symbol']}\n"
-        f"Direction: {t['direction']}\n"
-        "\n"
-        "Every trade number you write in the article MUST "
-        "come from this list, verbatim. Do NOT invent a "
-        "different entry, stop, target, exit, result, or "
-        "size.\n"
-        "\n"
-        "KEEP THE UNIT WHEN YOU QUOTE IT:\n"
-        f"  - Price: write $ before the number. \"$113.93\" "
-        f"not \"113.93\".\n"
-        f"  - Result: write $ before the number. "
-        f"\"-161.00 dollars\" or \"-$161.00\".\n"
-        f"  - ATR: write \"points\" after the number. "
-        f"\"0.83 points\" not \"0.83\".\n"
-        f"  - Contracts: write \"shares\" or \"contracts\" "
-        f"after. \"100 shares\" not \"100\".\n"
-        f"  - Time: write UTC (or CT/ET) after. \"14:46 UTC\" "
-        f"not \"14:46\".\n"
-        f"  - Percent: write the % sign. \"0.99%\" not "
-        f"\"0.99\".\n"
-        f"\n"
-        f"The reader must never have to guess what a number "
-        f"means. Every number carries its unit."
+    trade_date = ""
+    try:
+        if t.get("entry_time"):
+            trade_date = t["entry_time"].strftime("%Y-%m-%d")
+        elif t.get("traded_at"):
+            trade_date = str(t["traded_at"])[:10]
+    except Exception:
+        pass
+
+    lines = [
+        "--- THE TRADE ---",
+        f"{t.get('symbol', '?')} {side} {entry}",
+        f"stop {stop} ({stop_atr:.2f} ATR)",
+        f"target {target} ({target_r:.1f}R)",
+        f"size {shares} sh",
+        f"exit {exit_}",
+    ]
+    if trade_date and entry_t and exit_t:
+        lines.append(f"{trade_date}  {entry_t} -> {exit_t} ({held})")
+    lines.append(
+        f"result: {outcome} ({result:+.2f} USD, {result_r:+.2f}R)"
     )
+    if atr:
+        lines.append(f"ATR at entry: {atr} pts")
+    if entry:
+        lines.append(
+            f"stop distance: {stop_dist} "
+            f"({stop_dist / entry * 100:.1f}% of entry)"
+        )
+
+    lines.append("")
+    lines.append(
+        "Every number above is the trade's own. Do not add "
+        "$ signs or 'USD per share' or other decorations. The "
+        "units are in the labels (sh, ATR, %, R)."
+    )
+    return "\n".join(lines)
+
+
+
+
 
 # ──── CHARTS block ────
 
