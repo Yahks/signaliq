@@ -259,17 +259,22 @@ def build_exact_numbers(t: dict[str, Any]) -> str:
         except (TypeError, ValueError, KeyError):
             return "unknown"
 
+    # Detect the price unit. Stocks are in USD per share.
+    # Futures would use points; the trade generator only
+    # produces stock trades today.
+    price_unit = "USD per share"
+
     return (
         "--- USE THESE EXACT TRADE NUMBERS ---\n"
-        f"Entry price: {_f('entry')}\n"
-        f"Stop price: {_f('stop')}\n"
-        f"Target price: {_f('target')}\n"
-        f"Exit price: {_f('exit')}\n"
-        f"Result: {_f('result')} dollars\n"
-        f"Contracts: {t['contracts']}\n"
-        f"ATR at entry: {_f('atr_at_entry')}\n"
-        f"Entry time: {_fmt_time(t['entry_time'])}\n"
-        f"Exit time: {_fmt_time(t['exit_time'])}\n"
+        f"Entry price ({price_unit}): {_f('entry')}\n"
+        f"Stop price ({price_unit}): {_f('stop')}\n"
+        f"Target price ({price_unit}): {_f('target')}\n"
+        f"Exit price ({price_unit}): {_f('exit')}\n"
+        f"Result (USD): {_f('result')}\n"
+        f"Contracts (shares): {t['contracts']}\n"
+        f"ATR at entry (points): {_f('atr_at_entry')}\n"
+        f"Entry time (UTC): {_fmt_time(t['entry_time'])}\n"
+        f"Exit time (UTC): {_fmt_time(t['exit_time'])}\n"
         f"Percent of equity: {pct_str}%\n"
         f"Symbol: {t['symbol']}\n"
         f"Direction: {t['direction']}\n"
@@ -277,8 +282,24 @@ def build_exact_numbers(t: dict[str, Any]) -> str:
         "Every trade number you write in the article MUST "
         "come from this list, verbatim. Do NOT invent a "
         "different entry, stop, target, exit, result, or "
-        "size. If you write a trade number that is not in "
-        "this list, the article is wrong."
+        "size.\n"
+        "\n"
+        "KEEP THE UNIT WHEN YOU QUOTE IT:\n"
+        f"  - Price: write $ before the number. \"$113.93\" "
+        f"not \"113.93\".\n"
+        f"  - Result: write $ before the number. "
+        f"\"-161.00 dollars\" or \"-$161.00\".\n"
+        f"  - ATR: write \"points\" after the number. "
+        f"\"0.83 points\" not \"0.83\".\n"
+        f"  - Contracts: write \"shares\" or \"contracts\" "
+        f"after. \"100 shares\" not \"100\".\n"
+        f"  - Time: write UTC (or CT/ET) after. \"14:46 UTC\" "
+        f"not \"14:46\".\n"
+        f"  - Percent: write the % sign. \"0.99%\" not "
+        f"\"0.99\".\n"
+        f"\n"
+        f"The reader must never have to guess what a number "
+        f"means. Every number carries its unit."
     )
 
 # ──── CHARTS block ────

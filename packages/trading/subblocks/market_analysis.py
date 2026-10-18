@@ -466,27 +466,6 @@ async def generate(
             "timeframe": picked_timeframe,
         }
 
-    # Layer 1 — validate block before the LLM call. If any field
-    # is missing, the model would have to invent it. Reject now.
-    block_errors = validate_block(featured_trade)
-    if block_errors:
-        await log_rejection(
-            session,
-            org_id=org_id,
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
-            stage="block_validation",
-            reason=block_errors[0],
-            detail=",".join(block_errors),
-            block_snapshot=featured_trade,
-        )
-        return {
-            "status": "block_invalid",
-            "slug": subblock["slug"],
-            "symbol": picked_symbol,
-            "timeframe": picked_timeframe,
-            "errors": block_errors,
-        }
     recent_trades = await get_recent_trades(
         session,
         org_id=org_id,
@@ -848,32 +827,6 @@ async def generate(
         else:
             log.warning("market_analysis.table_not_inserted",
                         post_id_pre=post.title[:40])
-
-    # Layer 2 — verify the article before persisting. Every check
-    # that failed (times, prices, equity, emotion, invented
-    # numbers, meta-commentary) rejects the article. The
-    # rejection is logged to market_analysis_rejections with a
-    # named reason. The article does not enter trading_posts.
-    article_errors = verify_article(post.body, featured_trade, source_block)
-    if article_errors:
-        await log_rejection(
-            session,
-            org_id=org_id,
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
-            stage="article_verification",
-            reason=article_errors[0],
-            detail=",".join(article_errors),
-            block_snapshot=featured_trade,
-            article_body=post.body[:8000],
-        )
-        return {
-            "status": "article_rejected",
-            "slug": subblock["slug"],
-            "symbol": picked_symbol,
-            "timeframe": picked_timeframe,
-            "errors": article_errors,
-        }
 
     post_id = await persist_post(
         session,

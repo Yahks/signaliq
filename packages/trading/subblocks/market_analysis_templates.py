@@ -133,6 +133,25 @@ Every other number in the article (stock report readings,
 dashboard readings, market events) must come from the
 other sections of the source block.
 
+UNITS:
+Every number in the article carries its unit. The source
+block's EXACT NUMBERS section labels every trade value:
+"Entry price (USD per share): 113.93", "Result (USD):
+-161.00", "ATR at entry (points): 0.83", "Contracts
+(shares): 100", "Entry time (UTC): 14:46". When you quote
+one of those numbers, keep the unit.
+
+Write "$113.93" not "113.93". Write "-161.00 dollars" or
+"-$161.00" not "-161". Write "0.83 points" not "0.83".
+Write "100 shares" not "100". Write "14:46 UTC" not
+"14:46". Write "0.99%" not "0.99".
+
+The reader must never have to guess what a number means.
+If a number in your article has no unit, the sentence is
+wrong. Rewrite it.
+
+
+
 CHARTS ARE EVIDENCE:
 Five charts accompany this article. The source block's
 CHARTS section describes what each chart shows. Reference
@@ -314,6 +333,25 @@ number from the list, or delete the sentence.
 Every other number in the article (stock report readings,
 dashboard readings, market events) must come from the
 other sections of the source block.
+
+UNITS:
+Every number in the article carries its unit. The source
+block's EXACT NUMBERS section labels every trade value:
+"Entry price (USD per share): 113.93", "Result (USD):
+-161.00", "ATR at entry (points): 0.83", "Contracts
+(shares): 100", "Entry time (UTC): 14:46". When you quote
+one of those numbers, keep the unit.
+
+Write "$113.93" not "113.93". Write "-161.00 dollars" or
+"-$161.00" not "-161". Write "0.83 points" not "0.83".
+Write "100 shares" not "100". Write "14:46 UTC" not
+"14:46". Write "0.99%" not "0.99".
+
+The reader must never have to guess what a number means.
+If a number in your article has no unit, the sentence is
+wrong. Rewrite it.
+
+
 
 CHARTS ARE EVIDENCE:
 Five charts accompany this article. The source block's

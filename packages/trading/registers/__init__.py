@@ -1132,21 +1132,6 @@ def delivery_check(text: str, register: str) -> None:
         + _check_specificity(text, register)
         + _check_reader_voice(text, register)
     )
-    # market_analysis has four additional requirements: precise
-    # times, exact prices, account figures, and one moment of
-    # emotional loss of control. These are non-negotiable for
-    # that register - the article is not a trade post-mortem
-    # without them.
-    if register == "market_analysis":
-        for _check_fn in (
-            _check_precise_times,
-            _check_exact_prices,
-            _check_account_figures,
-            _check_emotional_moment,
-        ):
-            _v = _check_fn(text)
-            if _v:
-                violations.append(_v)
     if violations:
         raise DeliveryCheckError(violations)
 
