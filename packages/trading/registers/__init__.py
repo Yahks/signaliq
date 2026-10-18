@@ -883,6 +883,13 @@ def _check_empty_sentences(text: str, register: str) -> list[str]:
         return []
     if register in ("concept-explainer", "psychology-note"):
         return []
+    # market_analysis: the has-number/has-I/has-If test flags
+    # every prose sentence without data. The verify LLM catches
+    # fabricated claims and the precise_times + has_fix checks
+    # catch structural failures. Empty-sentence checking here
+    # produces more false positives than true positives.
+    if register == "market_analysis":
+        return []
     sentences = re.split(r"(?<=[.!?])\s+", text)
     offenders = []
     for s in sentences:
