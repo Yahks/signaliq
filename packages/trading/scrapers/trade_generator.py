@@ -403,19 +403,7 @@ async def ensure_trades_for(
                 "but the setup stayed clean."
             )
 
-        await session.execute(sql_text("""
-            INSERT INTO trade_log
-                (org_id, traded_at, instrument, direction, setup,
-                 entry, contracts, stop, target, exit, exit_reason,
-                 result, hold_time, source, symbol, timeframe,
-                 entry_time, exit_time, setup_detail, hesitation_note,
-                 atr_at_entry)
-            VALUES
-                (:oid, :at, :inst, :dir, :setup,
-                 :entry, :contracts, :stop, :target, :exit, :reason,
-                 :result, :hold, 'synthetic', :sym, :tf,
-                 :et, :xt, :sd, :hn, :atr)
-        """), {
+        _bindings = {
             "oid": org_id,
             "at": dates[i],
             "inst": symbol,
@@ -436,7 +424,41 @@ async def ensure_trades_for(
             "sd": setup_detail,
             "hn": hesitation,
             "atr": round(v["atr"], 4),
-        })
+        }
+
+        # Completeness check: every required field must be
+        # non-None. A trade with a missing stop, target, or
+        # timestamp is not usable by the article pipeline.
+        # Reject at insert rather than let it enter trade_log
+        # and fail at validate_block downstream.
+        _missing = [
+            k for k, val in _bindings.items() if val is None
+        ]
+        if not symbol or not timeframe:
+            _missing.extend(
+                k for k in ("sym", "tf") if k not in _missing
+            )
+        if _missing:
+            log.warning(
+                "trade_generator.incomplete_trade",
+                symbol=symbol, timeframe=timeframe,
+                missing=_missing,
+            )
+            continue
+
+        await session.execute(sql_text("""
+            INSERT INTO trade_log
+                (org_id, traded_at, instrument, direction, setup,
+                 entry, contracts, stop, target, exit, exit_reason,
+                 result, hold_time, source, symbol, timeframe,
+                 entry_time, exit_time, setup_detail, hesitation_note,
+                 atr_at_entry)
+            VALUES
+                (:oid, :at, :inst, :dir, :setup,
+                 :entry, :contracts, :stop, :target, :exit, :reason,
+                 :result, :hold, 'synthetic', :sym, :tf,
+                 :et, :xt, :sd, :hn, :atr)
+        """), _bindings)
         inserted += 1
 
     await session.commit()
