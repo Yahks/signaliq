@@ -155,17 +155,32 @@ wrong. Rewrite it.
 CHARTS ARE EVIDENCE:
 Five charts accompany this article. The source block's
 CHARTS section describes what each chart shows. Reference
-at least two charts by name and state what each shows and
-what it means for the trade.
+at least two charts. Name each by WHAT IT SHOWS, not by
+its block label. Write "the daily chart," "the returns
+chart," "the distribution," "the setup history," "the
+correlation chart." Do NOT write "the chart titled THE
+DAILY VIEW" or "the chart titled THE RETURNS" - that's
+quoting a block header, not naming a chart.
 
-A chart reference is not "the chart shows +2.68%." That's
-just a number. A chart reference is "the returns chart
-shows the 20-day is up 2.68% but the 12-week is down 2.36%
-- the stock has been oscillating, not trending. That's why
-the percentile reading felt actionable when it wasn't."
+For each reference, state the finding, not the number.
+"The returns chart shows the 20-day is up but the 12-week
+is down - the stock has been oscillating, not trending."
+Not "the returns chart shows -19.40%."
 
 If a chart contradicts a dashboard reading, that's the
 finding. Write about it.
+
+MUST CONTAIN A FIX:
+The article must state one specific change the trader
+now makes. Not a general observation. Not "I noticed X."
+A concrete process change: "I now require the market's
+volatility label to agree with my dashboard reading
+before I take a breakout." State the fix as something
+the trader now does.
+
+The fix is not a separate section. It can appear
+anywhere in the article - after the verdict, before the
+rule, at the end of the catch. Wherever it fits.
 
  Do NOT invent a
 volatility, spread, or move number.
@@ -356,17 +371,32 @@ wrong. Rewrite it.
 CHARTS ARE EVIDENCE:
 Five charts accompany this article. The source block's
 CHARTS section describes what each chart shows. Reference
-at least two charts by name and state what each shows and
-what it means for the trade.
+at least two charts. Name each by WHAT IT SHOWS, not by
+its block label. Write "the daily chart," "the returns
+chart," "the distribution," "the setup history," "the
+correlation chart." Do NOT write "the chart titled THE
+DAILY VIEW" or "the chart titled THE RETURNS" - that's
+quoting a block header, not naming a chart.
 
-A chart reference is not "the chart shows +2.68%." That's
-just a number. A chart reference is "the returns chart
-shows the 20-day is up 2.68% but the 12-week is down 2.36%
-- the stock has been oscillating, not trending. That's why
-the percentile reading felt actionable when it wasn't."
+For each reference, state the finding, not the number.
+"The returns chart shows the 20-day is up but the 12-week
+is down - the stock has been oscillating, not trending."
+Not "the returns chart shows -19.40%."
 
 If a chart contradicts a dashboard reading, that's the
 finding. Write about it.
+
+MUST CONTAIN A FIX:
+The article must state one specific change the trader
+now makes. Not a general observation. Not "I noticed X."
+A concrete process change: "I now require the market's
+volatility label to agree with my dashboard reading
+before I take a breakout." State the fix as something
+the trader now does.
+
+The fix is not a separate section. It can appear
+anywhere in the article - after the verdict, before the
+rule, at the end of the catch. Wherever it fits.
 
 
 

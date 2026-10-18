@@ -832,6 +832,7 @@ _TRADER_AUTHOR_REGISTERS: frozenset[str] = frozenset({
     "insider-log",
     "macro-view",
     "concept-explainer",
+    "market_analysis",
 })
 
 
@@ -886,7 +887,7 @@ def _check_empty_sentences(text: str, register: str) -> list[str]:
     offenders = []
     for s in sentences:
         s = s.strip()
-        if len(s) < 50:
+        if len(s) < 30:
             continue
         has_number = bool(re.search(r"\d", s))
         has_first_person = bool(re.search(r"\bI\b|\bI'", s))
@@ -923,7 +924,7 @@ def _check_checklist_mode(text: str, register: str) -> list[str]:
         r"Sixth|Seventh)\s*,",
         text,
     )
-    if len(seq_hits) >= 4:
+    if len(seq_hits) >= 2:
         violations.append(
             f"enumerated structure: 'First/Second/Third...' x"
             f"{len(seq_hits)} — write continuous prose, not a "
@@ -1115,6 +1116,30 @@ def _check_emotional_moment(body: str) -> str | None:
     return "emotional_moment_missing"
 
 
+def _check_chart_header(text: str) -> str | None:
+    """Flag articles that quote the block's chart header
+    instead of naming the chart by what it shows. "the chart
+    titled THE DAILY VIEW" is quoting a block header, not a
+    chart reference."""
+    import re
+    if re.search(r"chart titled ['\"]?THE ", text, re.IGNORECASE):
+        return "chart_quoted_by_header"
+    return None
+
+
+def _check_has_fix(text: str) -> str | None:
+    """Article must contain a process fix - a change the
+    trader now makes based on the trade."""
+    import re
+    patterns = [
+        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will (?:now|always|never))\b",
+    ]
+    for p in patterns:
+        if re.search(p, text, re.IGNORECASE):
+            return None
+    return "fix_missing"
+
+
 def delivery_check(text: str, register: str) -> None:
     """Run the full delivery check. Raises DeliveryCheckError on failure."""
     if register not in REGISTERS:
@@ -1132,6 +1157,18 @@ def delivery_check(text: str, register: str) -> None:
         + _check_specificity(text, register)
         + _check_reader_voice(text, register)
     )
+    # market_analysis requires a clock-time narrative and a
+    # stated fix. Both are content requirements, not beats.
+    if register == "market_analysis":
+        _v = _check_precise_times(text)
+        if _v:
+            violations.append(_v)
+        _v = _check_has_fix(text)
+        if _v:
+            violations.append(_v)
+        _v = _check_chart_header(text)
+        if _v:
+            violations.append(_v)
     if violations:
         raise DeliveryCheckError(violations)
 
