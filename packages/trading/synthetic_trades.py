@@ -601,21 +601,70 @@ async def _generate_synthetic_trades_inner(
 
     batch_id = str(uuid.uuid4())
     inserted = 0
+    skipped = 0
     for t in enriched:
         row = {k: v for k, v in t.items() if k != "is_violator"}
+
+        # Derive the fields this INSERT needs that the synthetic
+        # trade record doesn't natively carry. Complete the row
+        # so every market_analysis block gets a clean trade.
+        sym = row.get("symbol") or row.get("instrument") or ""
+        tf = row.get("timeframe") or "1d"
+        traded_at = row.get("traded_at")
+        # entry_time defaults to traded_at at midnight UTC.
+        entry_time = row.get("entry_time") or traded_at
+        # exit_time defaults to entry_time + 1 day (approximate).
+        exit_time = row.get("exit_time")
+        if exit_time is None and entry_time is not None:
+            try:
+                from datetime import timedelta as _td
+                exit_time = entry_time + _td(days=1)
+            except Exception:
+                exit_time = entry_time
+        setup_detail = row.get("setup_detail") or row.get("setup") or ""
+        hesitation_note = row.get("hesitation_note") or ""
+
+        # Completeness check: every required field must be non-None
+        # and symbol/timeframe must be non-empty.
+        missing = []
+        if not sym:
+            missing.append("symbol")
+        if not tf:
+            missing.append("timeframe")
+        for f in ("stop", "target", "exit", "atr_at_entry", "entry",
+                  "result", "exit_reason", "traded_at",
+                  "entry_time", "exit_time"):
+            if row.get(f) is None:
+                missing.append(f)
+        if missing:
+            log.warning(
+                "synthetic.incomplete_trade",
+                symbol=sym, timeframe=tf, missing=missing,
+            )
+            skipped += 1
+            continue
+
         await session.execute(sql_text("""
             INSERT INTO trade_log (
                 org_id, traded_at, instrument, direction, setup,
                 entry, contracts, stop, atr_at_entry, target, exit,
                 exit_reason, result, percent_of_equity, hold_time,
-                lesson, source, batch_id
+                lesson, source, batch_id, symbol, timeframe,
+                entry_time, exit_time, setup_detail, hesitation_note
             ) VALUES (
                 :oid, :traded_at, :instrument, :direction, :setup,
                 :entry, :contracts, :stop, :atr_at_entry, :target, :exit,
                 :exit_reason, :result, :percent_of_equity, :hold_time,
-                :lesson, 'synthetic', :batch_id
+                :lesson, 'synthetic', :batch_id, :symbol, :timeframe,
+                :entry_time, :exit_time, :setup_detail, :hesitation_note
             )
-        """), {"oid": org_id, "batch_id": batch_id, **row})
+        """), {
+            "oid": org_id, "batch_id": batch_id, **row,
+            "symbol": sym, "timeframe": tf,
+            "entry_time": entry_time, "exit_time": exit_time,
+            "setup_detail": setup_detail,
+            "hesitation_note": hesitation_note,
+        })
         inserted += 1
 
     await session.commit()
