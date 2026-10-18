@@ -282,7 +282,21 @@ NEGATIVE EXAMPLES - do NOT write like this:
     still alive."
 
 READING DISCIPLINE:
-Every number must trace to a line in the source block.
+The very first section of the source block, USE THESE
+EXACT TRADE NUMBERS, lists every trade number you may
+write: entry, stop, target, exit, result, contracts, ATR,
+entry time, exit time, percent of equity, symbol,
+direction. These are the ONLY trade numbers you may use.
+Not "close to" them. Not "around" them. The exact values
+from the list.
+
+If you catch yourself writing a trade number that is not
+in that list, the sentence is wrong. Rewrite it to use a
+number from the list, or delete the sentence.
+
+Every other number in the article (stock report readings,
+dashboard readings, market events) must come from the
+other sections of the source block.
 
 PRICE ACTION DISCIPLINE:
 Every bar-level detail must come from the PRICE ACTION
