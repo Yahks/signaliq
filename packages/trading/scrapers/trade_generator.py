@@ -241,6 +241,10 @@ async def ensure_trades_for(
     age_cutoff = now_utc - timedelta(days=180)
 
     valid: list[dict] = []
+    _rejections: dict[str, int] = {}
+
+    def _rej(reason: str) -> None:
+        _rejections[reason] = _rejections.get(reason, 0) + 1
 
     for s in setups:
         i = s["entry_i"]
@@ -251,6 +255,7 @@ async def ensure_trades_for(
 
         # Sanity: stop must be a real distance from entry.
         if abs(stop - entry) / entry < 0.002:
+            _rej("stop_tight")
             continue
 
         # Sanity: stop distance must be within 3× ATR. A stop 5×
@@ -261,16 +266,19 @@ async def ensure_trades_for(
         if _atr_at_entry > 0:
             _stop_atr = abs(stop - entry) / _atr_at_entry
             if _stop_atr > 3.0:
+                _rej("stop_wide")
                 continue
 
         # Sanity: target must be a real distance from entry.
         if abs(target - entry) / entry < 0.004:
+            _rej("target_tight")
             continue
 
         # Sanity: bar move from prior close must be plausible.
         if i > 0 and closes[i - 1]:
             pct_move = (closes[i] - closes[i - 1]) / closes[i - 1] * 100.0
             if abs(pct_move) > 25.0:
+                _rej("bar_move_large")
                 continue
 
         # Sanity: entry date must be recent.
@@ -278,6 +286,7 @@ async def ensure_trades_for(
             dates[i], datetime.min.time(), tzinfo=timezone.utc,
         )
         if entry_dt_check < age_cutoff:
+            _rej("too_old")
             continue
 
         # Walk forward up to 6 bars to see which barrier hits first.
@@ -333,7 +342,8 @@ async def ensure_trades_for(
     if not valid:
         log.warning("trade_generator.no_valid_setups",
                     symbol=symbol, timeframe=timeframe,
-                    detected=len(setups), valid=0)
+                    detected=len(setups), valid=0,
+                    rejections=_rejections)
         return 0
 
     # Most recent first, take `count`.

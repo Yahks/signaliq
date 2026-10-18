@@ -375,26 +375,13 @@ async def generate(
     recent_combos = await _recent_combinations(session, org_id=org_id)
     window_days, angle, focus = pick_combination(recent_combos)
 
-    # 2b. Stock + timeframe rotation. The pipeline picks a
-    # (stock, timeframe) pair. The article is about that pair.
-    stock_pick = await pick_stock_and_timeframe(
-        session,
-        org_id=org_id,
-        subblock_id=subblock["id"],
-    )
-    if stock_pick is None:
-        log.warning("market_analysis.no_stock_pick",
-                    org_id=org_id[:8])
-        return {"status": "no_stock_pick", "slug": subblock["slug"]}
-    picked_symbol, picked_timeframe, finding_type, finding_section = stock_pick
-
-    # Commit the fetched timeframes so the next queries (stock
-    # report, trade generator) see them. Without this, a
-    # first-fetch symbol can produce an empty trade series
-    # because the trades query runs before the market_history
-    # commit propagates to the session's connection.
-    await session.commit()
-
+    # 2b. Pick stock + timeframe, retry across stocks if the
+    # current pick has no valid trades. Some symbols (e.g.
+    # VEEV at 56 setups, 0 valid) fail all sanity checks. The
+    # pipeline should not die on one bad stock. Try up to
+    # _MAX_STOCK_RETRIES different stocks before giving up.
+    from ..scrapers.trade_generator import ensure_trades_for
+    _MAX_STOCK_RETRIES = 3
     _TIMEFRAME_LABEL = {
         "1y":  "10-year view",
         "1mo": "5-year monthly view",
@@ -403,67 +390,82 @@ async def generate(
         "1h":  "recent intraday view",
     }
 
-    # 2c. Build the stock report — the model's primary source.
-    stock_report = await build_stock_report(
-        session,
-        org_id=org_id,
-        symbol=picked_symbol,
-        timeframe=picked_timeframe,
-    )
-    if not stock_report:
-        log.warning(
-            "market_analysis.no_stock_report",
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
-        )
-        return {"status": "no_stock_report", "slug": subblock["slug"]}
-    # Trade block: trades must match the article's instrument
-    # and chart window. Generate them from the stock's own
-    # market_history series before reading them back.
-    from ..scrapers.trade_generator import ensure_trades_for
-    await ensure_trades_for(
-        session,
-        org_id=org_id,
-        symbol=picked_symbol,
-        timeframe=picked_timeframe,
-        count=5,
-    )
-    # Detect the pattern in the trader's own history first. If a
-    # pattern exists, its featured trade is the article's subject.
-    # Otherwise fall back to the next unused trade.
-    pattern = await detect_pattern(
-        session, org_id=org_id, symbol=picked_symbol,
-    )
-    if pattern:
-        featured_trade = pattern["featured_trade"]
-    else:
-        featured_trade = await pick_unused_trade(
+    picked_symbol = None
+    picked_timeframe = None
+    finding_type = None
+    finding_section = None
+    stock_report = None
+    pattern = None
+    featured_trade = None
+
+    for _attempt in range(_MAX_STOCK_RETRIES):
+        stock_pick = await pick_stock_and_timeframe(
             session,
             org_id=org_id,
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
+            subblock_id=subblock["id"],
         )
-        pattern = None
+        if stock_pick is None:
+            log.warning("market_analysis.no_stock_pick",
+                        org_id=org_id[:8])
+            return {"status": "no_stock_pick", "slug": subblock["slug"]}
+        (
+            _sym, _tf, _ftype, _fsection,
+        ) = stock_pick
+
+        # Commit the fetched timeframes.
+        await session.commit()
+
+        _stock_report = await build_stock_report(
+            session, org_id=org_id, symbol=_sym, timeframe=_tf,
+        )
+        if not _stock_report:
+            log.warning(
+                "market_analysis.retry_no_stock_report",
+                symbol=_sym, timeframe=_tf, attempt=_attempt + 1,
+            )
+            continue
+
+        await ensure_trades_for(
+            session, org_id=org_id,
+            symbol=_sym, timeframe=_tf, count=5,
+        )
+        _pattern = await detect_pattern(
+            session, org_id=org_id, symbol=_sym,
+        )
+        if _pattern:
+            _featured = _pattern["featured_trade"]
+        else:
+            _featured = await pick_unused_trade(
+                session, org_id=org_id,
+                symbol=_sym, timeframe=_tf,
+            )
+            _pattern = None
+
+        if _featured is not None:
+            # Success. Assign and break out of the retry loop.
+            picked_symbol = _sym
+            picked_timeframe = _tf
+            finding_type = _ftype
+            finding_section = _fsection
+            stock_report = _stock_report
+            pattern = _pattern
+            featured_trade = _featured
+            break
+
+        log.warning(
+            "market_analysis.retry_no_trade",
+            symbol=_sym, timeframe=_tf, attempt=_attempt + 1,
+        )
 
     if featured_trade is None:
         log.warning(
-            "market_analysis.no_unused_trade",
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
-        )
-        await log_rejection(
-            session,
-            org_id=org_id,
-            symbol=picked_symbol,
-            timeframe=picked_timeframe,
-            stage="block_validation",
-            reason="no_unused_trade",
+            "market_analysis.no_unused_trade_after_retries",
+            attempts=_MAX_STOCK_RETRIES,
         )
         return {
-            "status": "no_unused_trade",
+            "status": "no_unused_trade_after_retries",
             "slug": subblock["slug"],
-            "symbol": picked_symbol,
-            "timeframe": picked_timeframe,
+            "attempts": _MAX_STOCK_RETRIES,
         }
 
     recent_trades = await get_recent_trades(
