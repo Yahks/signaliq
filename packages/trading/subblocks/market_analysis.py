@@ -104,7 +104,12 @@ from .market_analysis_rotation import (
 )
 from .market_analysis_rotation_stock import pick_stock_and_timeframe
 from .market_analysis_pattern import detect_pattern
-from .market_analysis_quality import validate_block, log_rejection, verify_article
+from .market_analysis_quality import (
+    validate_block,
+    verify_article,
+    log_rejection,
+    build_exact_numbers,
+)
 from ..scrapers.market_history import build_stock_report
 
 log = get_logger(__name__)
@@ -695,6 +700,10 @@ async def generate(
     # it comes second. The dashboard, events, historical context,
     # and stock report are context, so they come after.
     _source_parts = []
+    # EXACT NUMBERS goes first. It's the only source of trade
+    # numbers the model is allowed to use. The block was
+    # validated before the LLM call, so this list is complete.
+    _source_parts.append(build_exact_numbers(featured_trade))
     if pattern:
         _source_parts.append(
             "--- THE PATTERN IN MY HISTORY ---\n"
@@ -836,7 +845,7 @@ async def generate(
     # numbers, meta-commentary) rejects the article. The
     # rejection is logged to market_analysis_rejections with a
     # named reason. The article does not enter trading_posts.
-    article_errors = verify_article(post.body, featured_trade)
+    article_errors = verify_article(post.body, featured_trade, source_block)
     if article_errors:
         await log_rejection(
             session,

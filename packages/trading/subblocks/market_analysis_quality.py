@@ -157,6 +157,7 @@ def _extract_trade_numbers(article: str, block: dict) -> list[str]:
 
 def verify_article(
     article: str, block: dict[str, Any],
+    source_block: str | None = None,
 ) -> list[str]:
     """Return named errors. Empty list means the article is valid."""
     if not article:
@@ -201,8 +202,54 @@ def verify_article(
             errors.append("source_reference")
             break
 
-    invented = _extract_trade_numbers(article, block)
+    # Check against the full source block if provided. A
+    # price that appears anywhere in the source (trade, stock
+    # report, dashboard) is not invented. Only prices that
+    # appear in NEITHER are truly hallucinated.
+    check_target = source_block if source_block else json.dumps(block, default=str)
+    invented = []
+    for m in _PRICE_RE.finditer(article):
+        num = m.group(0)
+        if num not in check_target:
+            invented.append(num)
     if invented:
-        errors.append(f"invented_trade_numbers:{','.join(invented[:5])}")
+        errors.append(f"invented_numbers:{','.join(invented[:5])}")
 
     return errors
+
+
+# ──── EXACT NUMBERS list ────
+
+def build_exact_numbers(t: dict[str, Any]) -> str:
+    """Build the EXACT NUMBERS section. Only called after
+    validate_block() returns empty - the block is guaranteed
+    to have every field."""
+    def _fmt_time(dt):
+        try:
+            return dt.strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            return str(dt)
+
+    return (
+        "--- USE THESE EXACT TRADE NUMBERS ---\n"
+        f"Entry price: {t['entry']}\n"
+        f"Stop price: {t['stop']}\n"
+        f"Target price: {t['target']}\n"
+        f"Exit price: {t['exit']}\n"
+        f"Result: {t['result']} dollars\n"
+        f"Contracts: {t['contracts']}\n"
+        f"ATR at entry: {t['atr_at_entry']}\n"
+        f"Entry time: {_fmt_time(t['entry_time'])}\n"
+        f"Exit time: {_fmt_time(t['exit_time'])}\n"
+        f"Percent of equity: {t.get('percent_of_equity', 'unknown')}%\n"
+        f"Symbol: {t['symbol']}\n"
+        f"Direction: {t['direction']}\n"
+        "\n"
+        "Every trade number you write in the article MUST "
+        "come from this list, verbatim. Do NOT invent a "
+        "different entry, stop, target, exit, result, or "
+        "size. If you write a trade number that is not in "
+        "this list, the article is wrong."
+    )
+
+
