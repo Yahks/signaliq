@@ -1069,6 +1069,52 @@ def _check_reader_voice(text: str, register: str) -> list[str]:
     return []
 
 
+# ──── market_analysis four-criteria checks ────
+# Every market_analysis article must contain: precise times,
+# exact prices, account figures (dollar AND percent), and one
+# moment of emotional loss of control.
+
+def _check_precise_times(body: str) -> str | None:
+    """Article must have at least 2 clock times with timezone."""
+    import re
+    matches = re.findall(
+        r"\b\d{1,2}:\d{2}\s*(?:[AaPp][Mm]|[Uu][Tt][Cc]|[Cc][Tt]|[Ee][Tt]|[Ee][Ss][Tt])",
+        body,
+    )
+    return None if len(matches) >= 2 else "precise_times_missing"
+
+
+def _check_exact_prices(body: str) -> str | None:
+    """Article must contain at least 3 exact prices (X.XX format)."""
+    import re
+    matches = re.findall(r"\b\d{2,4}\.\d{2}\b", body)
+    return None if len(matches) >= 3 else "exact_prices_missing"
+
+
+def _check_account_figures(body: str) -> str | None:
+    """Article must contain both a dollar amount and a percent."""
+    import re
+    has_dollars = bool(re.search(r"\$\d[\d,]*", body))
+    has_pct = bool(re.search(r"\b\d+(?:\.\d+)?\s*%", body))
+    if has_dollars and has_pct:
+        return None
+    return "account_figures_missing"
+
+
+def _check_emotional_moment(body: str) -> str | None:
+    """Article must contain a first-person emotional admission."""
+    import re
+    patterns = [
+        r"\b(?:I (?:ignored|refused|couldn'?t|could not|wanted|told myself|let|let my|let the|convinced myself))\b",
+        r"\b(?:denial|refus(?:al|ed)|ego|tilt|impulse|tempted)\b",
+        r"\b(?:I was (?:angry|frustrated|scared|afraid|desperate))\b",
+    ]
+    for p in patterns:
+        if re.search(p, body, re.IGNORECASE):
+            return None
+    return "emotional_moment_missing"
+
+
 def delivery_check(text: str, register: str) -> None:
     """Run the full delivery check. Raises DeliveryCheckError on failure."""
     if register not in REGISTERS:
@@ -1086,6 +1132,21 @@ def delivery_check(text: str, register: str) -> None:
         + _check_specificity(text, register)
         + _check_reader_voice(text, register)
     )
+    # market_analysis has four additional requirements: precise
+    # times, exact prices, account figures, and one moment of
+    # emotional loss of control. These are non-negotiable for
+    # that register - the article is not a trade post-mortem
+    # without them.
+    if register == "market_analysis":
+        for _check_fn in (
+            _check_precise_times,
+            _check_exact_prices,
+            _check_account_figures,
+            _check_emotional_moment,
+        ):
+            _v = _check_fn(text)
+            if _v:
+                violations.append(_v)
     if violations:
         raise DeliveryCheckError(violations)
 

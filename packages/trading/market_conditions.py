@@ -29,31 +29,53 @@ COLS = (
 async def get_market_conditions(
     session: AsyncSession, org_id: str,
 ) -> dict[str, str]:
-    """Return the latest live market_conditions row for the org.
+    """Return a live market_conditions row for the org.
 
-    Empty dict if the trader has not saved one.
+    Rotates across the org's saved snapshots so consecutive
+    articles see different regime states. Uses the article
+    count for this subblock to pick. Falls back to the most
+    recent row if only one exists.
     """
-    row = (await session.execute(sql_text("""
+    # Find the article count for market_analysis so we can
+    # rotate deterministically. If the count can't be read
+    # (no subblock row), fall back to 0 (most recent).
+    try:
+        cnt_row = (await session.execute(sql_text("""
+            SELECT COUNT(*) FROM trading_posts p
+            JOIN trading_subblocks s ON s.id = p.subblock_id
+            WHERE p.org_id = :oid
+              AND s.slug = 'market_analysis'
+              AND p.deleted_at IS NULL
+        """), {"oid": org_id})).first()
+        article_count = int(cnt_row[0] or 0) if cnt_row else 0
+    except Exception:
+        article_count = 0
+
+    # Fetch all snapshots. Pick one by article_count % N.
+    rows = (await session.execute(sql_text("""
         SELECT what_i_track, baselines, regimes,
                thresholds, adjustments, mechanisms,
                realized_vol_current, spread_current, range_current,
                correlation_current, breadth_current
         FROM market_conditions
         WHERE org_id = :oid AND deleted_at IS NULL
-        ORDER BY created_at DESC LIMIT 1
-    """), {"oid": org_id})).first()
+        ORDER BY created_at DESC
+    """), {"oid": org_id})).mappings().all()
+
+    if not rows:
+        return {}
+    row = rows[article_count % len(rows)]
     if not row:
         return {}
     out: dict[str, object] = {
-        c: (row[i] or "").strip()
-        for i, c in enumerate(COLS)
+        c: ((row[c] or "") if isinstance(row[c], str) else (row[c] or "")).strip() if row[c] is not None else ""
+        for c in COLS
     }
-    # Append the numeric current readings.
-    out["realized_vol_current"] = row[6]
-    out["spread_current"] = row[7]
-    out["range_current"] = row[8]
-    out["correlation_current"] = row[9]
-    out["breadth_current"] = row[10]
+    out["realized_vol_current"] = row["realized_vol_current"]
+    out["spread_current"] = row["spread_current"]
+    out["range_current"] = row["range_current"]
+    out["correlation_current"] = row["correlation_current"]
+    out["breadth_current"] = row["breadth_current"]
     return out
 
 
@@ -82,6 +104,7 @@ async def get_research_block(
 def format_conditions_block(
     mc: dict[str, str],
     research_block: list[dict[str, str]] | None = None,
+    include_readings: bool = True,
 ) -> str:
     """Format the market-conditions dict for the model prompt.
 
@@ -113,7 +136,7 @@ def format_conditions_block(
         ("breadth_current", "Candidate count", ""),
     ]
     current_lines: list[str] = []
-    for field, label, unit in current_fields:
+    for field, label, unit in [] if not include_readings else current_fields:
         v = mc.get(field)
         if v is None or v == "":
             continue
@@ -322,24 +345,35 @@ async def summarize_historical_context(
     *,
     org_id: str,
     window_days: int = 90,
+    symbol: str | None = None,
 ) -> str:
     """Read market_history and produce a historical context paragraph.
 
     Deterministic. No LLM. Returns empty string if there are
     fewer than 3 rows for any symbol, or no symbols at all.
+
+    When `symbol` is provided, only that symbol's context is
+    produced. When omitted, all symbols are included (legacy
+    behavior — kept for callers that want a market-wide view).
     """
     from datetime import date as _date, timedelta as _td
 
     cutoff = _date.today() - _td(days=window_days)
+    _sym_clause = ""
+    _params: dict = {"oid": org_id, "cutoff": cutoff}
+    if symbol:
+        _sym_clause = " AND symbol = :sym"
+        _params["sym"] = symbol
     try:
-        rows = (await session.execute(sql_text("""
+        rows = (await session.execute(sql_text(f"""
             SELECT symbol, trade_date, close
             FROM market_history
             WHERE org_id = :oid
               AND deleted_at IS NULL
               AND trade_date >= :cutoff
+              {_sym_clause}
             ORDER BY symbol, trade_date
-        """), {"oid": org_id, "cutoff": cutoff})).mappings().all()
+        """), _params)).mappings().all()
     except Exception as exc:
         log.warning("market_history.read_failed", error=str(exc)[:200])
         return ""

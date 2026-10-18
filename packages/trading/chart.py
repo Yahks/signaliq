@@ -296,3 +296,172 @@ def _render_yearly_png(
     target.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(target, format="png", bbox_inches="tight")
     plt.close(fig)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Stock chart — reads market_history, renders one (symbol, timeframe).
+# ─────────────────────────────────────────────────────────────────────
+
+_STOCK_CHART_WINDOW = {
+    "1y":  (10,  "log"),
+    "1mo": (60,  "log"),
+    "1wk": (52,  "linear"),
+    "1d":  (60,  "linear"),
+    "1h":  (100, "linear"),
+}
+
+
+async def render_stock_chart(
+    session,
+    *,
+    org_id: str,
+    symbol: str,
+    timeframe: str,
+    force: bool = False,
+) -> str | None:
+    """Render a stock chart for one (symbol, timeframe).
+
+    Reads from market_history. Returns a URL like
+    "/static/charts/DASH-1d-2026-10-15.png", or None on failure.
+    """
+    if not symbol or not timeframe:
+        return None
+
+    from sqlalchemy import text as sql_text
+
+    today = date.today().isoformat()
+    safe = _safe_symbol(symbol)
+    filename = f"{safe}-{timeframe}-{today}.png"
+    target = _CHART_DIR / filename
+
+    if target.exists() and not force:
+        log.info("chart.cache_hit", symbol=symbol,
+                 timeframe=timeframe, file=filename)
+        return f"/static/charts/{filename}"
+
+    n_bars, scale = _STOCK_CHART_WINDOW.get(timeframe, (60, "linear"))
+
+    try:
+        rows = (await session.execute(sql_text("""
+            SELECT trade_date, close
+            FROM market_history
+            WHERE org_id = :oid
+              AND symbol = :sym
+              AND timeframe = :tf
+              AND deleted_at IS NULL
+            ORDER BY trade_date DESC
+            LIMIT :lim
+        """), {
+            "oid": org_id, "sym": symbol,
+            "tf": timeframe, "lim": n_bars,
+        })).mappings().all()
+    except Exception as exc:
+        log.warning("chart.history_failed",
+                    symbol=symbol, timeframe=timeframe,
+                    error=str(exc)[:200])
+        return None
+
+    if len(rows) < 3:
+        log.warning("chart.history_too_few",
+                    symbol=symbol, timeframe=timeframe, rows=len(rows))
+        return None
+
+    rows = list(reversed(rows))
+    dates = [r["trade_date"] for r in rows]
+    closes = [float(r["close"]) for r in rows]
+
+    try:
+        _render_stock_png(symbol, timeframe, dates, closes, scale, target)
+    except Exception as exc:
+        log.warning("chart.render_failed",
+                    symbol=symbol, timeframe=timeframe,
+                    error=str(exc)[:200])
+        return None
+
+    log.info(
+        "chart.stock_rendered",
+        symbol=symbol, timeframe=timeframe,
+        bars=len(rows), file=filename,
+        bytes=target.stat().st_size,
+    )
+    return f"/static/charts/{filename}"
+
+
+def _render_stock_png(
+    symbol: str, timeframe: str,
+    dates: list, closes: list[float],
+    scale: str, target: Path,
+) -> None:
+    """Render a stock chart PNG. Separated for testing."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+    from datetime import datetime
+
+    dts = []
+    for d in dates:
+        if isinstance(d, datetime):
+            dts.append(d)
+        elif hasattr(d, "year"):
+            dts.append(datetime(d.year, d.month, d.day))
+        else:
+            try:
+                dts.append(datetime.fromisoformat(str(d)))
+            except Exception:
+                dts.append(None)
+
+    fig, ax = plt.subplots(figsize=(8, 3.5), dpi=100)
+
+    ax.plot(dts, closes, color="#3b82f6", linewidth=1.6)
+    floor = min(closes) * (0.9 if scale == "log" else 1.0)
+    ax.fill_between(dts, closes, floor, color="#3b82f6", alpha=0.08)
+
+    if scale == "log":
+        ax.set_yscale("log")
+
+    ax.grid(True, linestyle="--", linewidth=0.5, color="#e5e7eb")
+
+    first = closes[0]
+    last = closes[-1]
+    pct = (last - first) / first * 100 if first else 0
+    arrow = "\u25b2" if pct >= 0 else "\u25bc"
+    color = "#16a34a" if pct >= 0 else "#dc2626"
+    tf_label = {
+        "1y": "10-year", "1mo": "5-year monthly",
+        "1wk": "1-year weekly", "1d": "60-day daily",
+        "1h": "intraday",
+    }.get(timeframe, timeframe)
+    ax.set_title(
+        f"{symbol}  \u00b7  {tf_label}  \u00b7  {arrow} {pct:+.2f}%",
+        fontsize=11, color=color, loc="left", pad=8,
+    )
+
+    ax.set_ylabel("Price (log)" if scale == "log" else "Price",
+                  fontsize=9, color="#6b7280")
+
+    if timeframe == "1h":
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    elif timeframe in ("1d", "1wk"):
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    else:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+
+    ax.tick_params(axis="both", labelsize=8, colors="#6b7280")
+
+    ax.annotate(
+        f"{last:.2f}",
+        xy=(dts[-1], last), xytext=(6, 0), textcoords="offset points",
+        fontsize=9, color="#111827", va="center", fontweight="bold",
+    )
+
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.spines["left"].set_color("#d1d5db")
+    ax.spines["bottom"].set_color("#d1d5db")
+
+    fig.tight_layout()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(target, format="png", bbox_inches="tight")
+    plt.close(fig)

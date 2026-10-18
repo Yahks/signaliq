@@ -907,6 +907,7 @@ async def call_llm_json(
     target_words: int = 400,
     use_cache: bool = True,
     skip_standard: bool = False,
+    temperature: float = 0.0,
 ) -> TradingPost:
     """Call the reasoning LLM and parse {title, body} from the response.
 
@@ -952,6 +953,22 @@ async def call_llm_json(
 
     log.info("subblock.llm_call_start", prompt=prompt_name, words=target_words)
 
+    # DEBUG: dump the exact prompt sent to the model. Gated on
+    # DEBUG_MA_PROMPT=1 in the environment. Used for diagnosing
+    # refusals ("I'm sorry, but I can't complete this request").
+    import os as _os_dbg
+    if _os_dbg.environ.get("DEBUG_MA_PROMPT"):
+        try:
+            from pathlib import Path as _P_dbg
+            _P_dbg("/tmp/ma_system.txt").write_text(full_system)
+            _P_dbg("/tmp/ma_user.txt").write_text(full_user)
+            log.info("subblock.prompt_dumped",
+                     system_chars=len(full_system),
+                     user_chars=len(full_user))
+        except Exception as _exc_dbg:
+            log.warning("subblock.prompt_dump_failed",
+                        error=str(_exc_dbg)[:200])
+
     # Text protocol — avoids Groq's JSON-mode token cap that truncated
     # long responses and failed with json_validate_failed.
     # Retry the LLM call on transient network errors (DNS blips,
@@ -970,8 +987,8 @@ async def call_llm_json(
                 org_id=org_id,
                 prompt_version_id=_pv_gen,
                 purpose=prompt_name,
-                temperature=0.0,
-                max_tokens=3500,
+                temperature=temperature,
+                max_tokens=min(_MAX_TOKENS_LONG, max(int(target_words * 1.4) + 600, 2000)),
                 json_mode=False,
                 use_cache=use_cache,
                 # S.9.43 — generation uses low reasoning effort.
@@ -1376,6 +1393,7 @@ async def call_llm_json_verified(
     voice: str | None = None,
     skip_verify: bool = False,
     skip_standard: bool = False,
+    temperature: float = 0.0,
 ) -> TradingPost:
     """Public entry point. Calls the impl, then stamps the returned
     post with editorial metadata (form, tone, voice). The metadata
@@ -1394,6 +1412,7 @@ async def call_llm_json_verified(
         use_cache=use_cache,
         skip_verify=skip_verify,
         skip_standard=skip_standard,
+        temperature=temperature,
     )
     post.form = form
     post.tone = tone
@@ -1414,6 +1433,7 @@ async def _call_llm_json_verified_impl(
     use_cache: bool = True,
     skip_verify: bool = False,
     skip_standard: bool = False,
+    temperature: float = 0.0,
 ) -> TradingPost:
     """Single-pass generation. Replaces the multi-retry impl (S.8.20).
 
@@ -1454,6 +1474,7 @@ async def _call_llm_json_verified_impl(
         target_words=target_words,
         use_cache=use_cache,
         skip_standard=skip_standard,
+        temperature=temperature,
     )
 
     # ── 2. Verify FIRST, before any length check. Accuracy is

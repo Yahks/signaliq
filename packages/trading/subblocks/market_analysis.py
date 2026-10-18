@@ -100,9 +100,12 @@ from .market_analysis_rotation import (
     get_recent_trades,
     mark_trade_used,
     log_run,
-    reset_trades_if_due,
     _recent_combinations,
 )
+from .market_analysis_rotation_stock import pick_stock_and_timeframe
+from .market_analysis_pattern import detect_pattern
+from .market_analysis_quality import validate_block, log_rejection, verify_article
+from ..scrapers.market_history import build_stock_report
 
 log = get_logger(__name__)
 
@@ -321,6 +324,27 @@ def filter_research_for_block(block_key: str, research_block: list) -> list:
     return filtered if filtered else research_block
 
 
+def _format_pattern(pattern: dict) -> str:
+    """Render a detected pattern's stats as readable text for the block."""
+    def _pct(x):
+        return f"{x * 100:.1f}%"
+
+    def _dollars(x):
+        return f"${x:,.0f}"
+
+    n_total = pattern["n_in"] + pattern["n_out"]
+    return (
+        f"Across the last {n_total} trades:\n"
+        f"  - {pattern['n_in']} trades matching the pattern. "
+        f"Win rate {_pct(pattern['wr_in'])}. "
+        f"Average loss {_dollars(pattern['al_in'])}.\n"
+        f"  - {pattern['n_out']} trades not matching the pattern. "
+        f"Win rate {_pct(pattern['wr_out'])}. "
+        f"Average loss {_dollars(pattern['al_out'])}.\n"
+        f"  - Win-rate gap: {pattern['gap'] * 100:.1f} pp."
+    )
+
+
 async def generate(
     session: AsyncSession,
     *,
@@ -341,14 +365,129 @@ async def generate(
 
     # 2. Rotation picks. Reset trade pool if every trade has
     # been used (or the reset window has passed).
-    await reset_trades_if_due(session, org_id=org_id)
 
     recent_combos = await _recent_combinations(session, org_id=org_id)
     window_days, angle, focus = pick_combination(recent_combos)
-    # Trade block disabled: trade_log rows are synthetic.
-    # Re-enable when real trades are available.
-    featured_trade = None
-    recent_trades = []
+
+    # 2b. Stock + timeframe rotation. The pipeline picks a
+    # (stock, timeframe) pair. The article is about that pair.
+    stock_pick = await pick_stock_and_timeframe(
+        session,
+        org_id=org_id,
+        subblock_id=subblock["id"],
+    )
+    if stock_pick is None:
+        log.warning("market_analysis.no_stock_pick",
+                    org_id=org_id[:8])
+        return {"status": "no_stock_pick", "slug": subblock["slug"]}
+    picked_symbol, picked_timeframe, finding_type, finding_section = stock_pick
+
+    # Commit the fetched timeframes so the next queries (stock
+    # report, trade generator) see them. Without this, a
+    # first-fetch symbol can produce an empty trade series
+    # because the trades query runs before the market_history
+    # commit propagates to the session's connection.
+    await session.commit()
+
+    _TIMEFRAME_LABEL = {
+        "1y":  "10-year view",
+        "1mo": "5-year monthly view",
+        "1wk": "1-year weekly view",
+        "1d":  "60-day daily view",
+        "1h":  "recent intraday view",
+    }
+
+    # 2c. Build the stock report — the model's primary source.
+    stock_report = await build_stock_report(
+        session,
+        org_id=org_id,
+        symbol=picked_symbol,
+        timeframe=picked_timeframe,
+    )
+    if not stock_report:
+        log.warning(
+            "market_analysis.no_stock_report",
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+        )
+        return {"status": "no_stock_report", "slug": subblock["slug"]}
+    # Trade block: trades must match the article's instrument
+    # and chart window. Generate them from the stock's own
+    # market_history series before reading them back.
+    from ..scrapers.trade_generator import ensure_trades_for
+    await ensure_trades_for(
+        session,
+        org_id=org_id,
+        symbol=picked_symbol,
+        timeframe=picked_timeframe,
+        count=5,
+    )
+    # Detect the pattern in the trader's own history first. If a
+    # pattern exists, its featured trade is the article's subject.
+    # Otherwise fall back to the next unused trade.
+    pattern = await detect_pattern(
+        session, org_id=org_id, symbol=picked_symbol,
+    )
+    if pattern:
+        featured_trade = pattern["featured_trade"]
+    else:
+        featured_trade = await pick_unused_trade(
+            session,
+            org_id=org_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+        )
+        pattern = None
+
+    if featured_trade is None:
+        log.warning(
+            "market_analysis.no_unused_trade",
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+        )
+        await log_rejection(
+            session,
+            org_id=org_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+            stage="block_validation",
+            reason="no_unused_trade",
+        )
+        return {
+            "status": "no_unused_trade",
+            "slug": subblock["slug"],
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
+        }
+
+    # Layer 1 — validate block before the LLM call. If any field
+    # is missing, the model would have to invent it. Reject now.
+    block_errors = validate_block(featured_trade)
+    if block_errors:
+        await log_rejection(
+            session,
+            org_id=org_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+            stage="block_validation",
+            reason=block_errors[0],
+            detail=",".join(block_errors),
+            block_snapshot=featured_trade,
+        )
+        return {
+            "status": "block_invalid",
+            "slug": subblock["slug"],
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
+            "errors": block_errors,
+        }
+    recent_trades = await get_recent_trades(
+        session,
+        org_id=org_id,
+        limit=5,
+        symbol=picked_symbol,
+        timeframe=picked_timeframe,
+    )
 
     # 3. The market's own report — last 24 hours of events.
     events_summary = await summarize_market_events(session, org_id=org_id)
@@ -356,6 +495,7 @@ async def generate(
     # 4. Historical context, over the picked window.
     historical_context = await summarize_historical_context(
         session, org_id=org_id, window_days=window_days,
+        symbol=picked_symbol,
     )
 
     # 5. Trade block — featured trade + recent trades table.
@@ -368,32 +508,143 @@ async def generate(
         except Exception:
             return str(v)
 
-    # Featured trade paragraph (feeds the source-data section).
+    # Featured trade — FULL DETAILED RECORD.
+    #
+    # The reviewer wants the article to read like a moment-by-moment
+    # trading log, not a summary. Every number the reader needs to
+    # see the trade must be in this block, formatted as data, and
+    # the article's prose must render each one.
+    #
+    # Do NOT drop a field. If a value is None on this trade, skip
+    # that line — never invent a value.
     featured_parts = []
     if featured_trade:
         t = featured_trade
+
+        # Date and time of the fill. The article body must show both.
+        # Prefer entry_time (real intraday timestamp) over
+        # traded_at (date-only midnight). Fall back through the
+        # chain if entry_time is missing.
+        entry_time = t.get("entry_time")
+        traded_at = t.get("traded_at")
+
+        def _fmt_dt(dt):
+            if dt is None:
+                return ("", "")
+            try:
+                return (dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M UTC"))
+            except Exception:
+                return (str(dt)[:10], "")
+
+        if entry_time is not None:
+            trade_date, trade_time = _fmt_dt(entry_time)
+        elif traded_at is not None:
+            trade_date, trade_time = _fmt_dt(traded_at)
+        else:
+            trade_date, trade_time = ("", "")
+
+        # Contract count. The reviewer explicitly wants size.
+        contracts = t.get("contracts")
+        contracts_str = (
+            f"{contracts} contract" + ("s" if contracts and contracts != 1 else "")
+            if contracts is not None else None
+        )
+
+        # Stop in ATR multiples. ATR lives in atr_at_entry.
+        stop_val = t.get("stop")
+        entry_val = t.get("entry")
+        atr_val = t.get("atr_at_entry")
+        stop_atr_multiple = None
+        if stop_val is not None and entry_val is not None and atr_val:
+            try:
+                stop_atr_multiple = abs(float(stop_val) - float(entry_val)) / float(atr_val)
+            except (TypeError, ValueError):
+                stop_atr_multiple = None
+
+        # Dollar P&L: result × contracts × point value. We do not
+        # know the point value in this module, so emit the raw
+        # `result` and the `contracts` and let the article say
+        # "X points × N contracts" without a dollar conversion.
+        # `percent_of_equity` is the dollar-impact number.
+        result_val = t.get("result")
+        pct_equity = t.get("percent_of_equity")
+        if pct_equity is None and result_val is not None:
+            # Compute from the trader's starting equity. The
+            # account block below shows $200,000 as the starting
+            # balance. Compute % of equity from that constant.
+            try:
+                pct_equity = (float(result_val) / 200000.0) * 100.0
+            except (TypeError, ValueError):
+                pct_equity = None
+
+        featured_parts.append("--- THE TRADE I WANT TO TALK ABOUT ---")
         featured_parts.append(
-            "--- THE TRADE I WANT TO TALK ABOUT ---"
+            f"Traded at: {trade_date} {trade_time}".strip()
         )
-        line = (
-            f"{t['instrument']} {t['direction']} on "
-            f"{str(t['traded_at'])[:10]}. "
-            f"Entry {_fmt(t['entry'])}, stop {_fmt(t.get('stop'))}, "
-            f"target {_fmt(t.get('target'))}, exit {_fmt(t['exit'])}. "
-            f"Result {_fmt(t['result'])}. "
-            f"Hold time {t.get('hold_time')}. "
-            f"Exit reason: {t.get('exit_reason')}."
+        # Exit time — the reviewer's log needs both entry and exit
+        # times. Format matches the entry.
+        _exit_dt = t.get("exit_time")
+        if _exit_dt is not None:
+            _ex_d, _ex_t = _fmt_dt(_exit_dt)
+            featured_parts.append(
+                f"Exited at: {_ex_d} {_ex_t}".strip()
+            )
+        featured_parts.append(
+            f"Instrument: {t.get('instrument')}"
         )
-        featured_parts.append(line)
+        featured_parts.append(
+            f"Direction: {t.get('direction')}"
+        )
+        if contracts_str:
+            featured_parts.append(f"Size: {contracts_str}")
+        if t.get("setup"):
+            featured_parts.append(f"Setup: {t['setup']}")
+        featured_parts.append(f"Entry: {_fmt(entry_val)}")
+        if stop_val is not None:
+            stop_line = f"Stop: {_fmt(stop_val)}"
+            if stop_atr_multiple is not None:
+                stop_line += f" ({stop_atr_multiple:.2f} × ATR)"
+            featured_parts.append(stop_line)
+        if atr_val is not None:
+            featured_parts.append(f"ATR at entry: {_fmt(atr_val)}")
+        if t.get("target") is not None:
+            featured_parts.append(f"Target: {_fmt(t['target'])}")
+        if t.get("exit") is not None:
+            featured_parts.append(f"Exit: {_fmt(t['exit'])}")
+        if t.get("exit_reason"):
+            featured_parts.append(
+                f"Exit reason: {t['exit_reason']}"
+            )
+        if result_val is not None:
+            featured_parts.append(
+                f"Result: {_fmt(result_val)}"
+            )
+        if pct_equity is not None:
+            featured_parts.append(
+                f"Percent of equity: {_fmt(pct_equity)}%"
+            )
+        if t.get("hold_time"):
+            featured_parts.append(
+                f"Hold time: {t['hold_time']}"
+            )
         if t.get("lesson"):
             featured_parts.append(
-                "Lesson I wrote at the time: " + str(t["lesson"])
+                f"Lesson I wrote at the time: {t['lesson']}"
             )
-        if t.get("setup"):
-            featured_parts.append("Setup: " + str(t["setup"]))
+        # Price action — real OHLC bars from market_history.
+        # Each line is one bar between entry and exit. The
+        # template's THE MOMENT and THE HESITATION beats read
+        # from this section.
+        _sd = t.get("setup_detail")
+        if _sd:
+            featured_parts.append("")
+            featured_parts.append(_sd)
     featured_trade_block = (
         "\n".join(featured_parts) if featured_parts else ""
     )
+
+    # The pattern and behavioral note are added to source_block
+    # separately, above the trade block. Not here.
 
     # Recent-trades markdown table (feeds the beat 11 instruction).
     table_parts = []
@@ -414,15 +665,49 @@ async def generate(
 
     # Account equity block. Computed from trade_log; inserted
     # into the article in code, attached to the trade table.
-    # Account block disabled: computed from synthetic trades.
-    account_block = ""
+    # Account block: the trader's overall book. Not scoped
+    # to the picked stock - it shows the account as it stands.
+    try:
+        account_data = await summarize_account_equity(
+            session, org_id=org_id,
+        )
+        account_block = format_account_block(account_data)
+    except Exception as _acc:
+        log.warning("market_analysis.account_failed",
+                    error=str(_acc)[:200])
+        account_block = ""
 
     # 6. Build the source block.
-    conditions_block = format_conditions_block(mc, research_block=None)
-    source_block = (
-        "--- MY READINGS AND PROCESS ---\n"
-        + conditions_block
+    # Two-source block:
+    #   1. The trader's dashboard — what they track and see.
+    #   2. The market's own report — the last 24 hours.
+    #   3. Historical context over the picked window.
+    #   4. The stock report — a specific stock with its chart and stats.
+    # The trader's process columns only. The stale CL
+    # readings are not this article's dashboard; the picked
+    # stock's own readings are in the stock report.
+    conditions_block = format_conditions_block(
+        mc, research_block=None, include_readings=False,
     )
+    # Assemble the source block. Order matters: the model reads
+    # top-to-bottom and weights what it sees first. The pattern is
+    # the subject, so it comes first. The trade is the proof, so
+    # it comes second. The dashboard, events, historical context,
+    # and stock report are context, so they come after.
+    _source_parts = []
+    if pattern:
+        _source_parts.append(
+            "--- THE PATTERN IN MY HISTORY ---\n"
+            + _format_pattern(pattern)
+            + "\n\n--- THE BEHAVIORAL MOMENT ---\n"
+            + (pattern.get("behavioral_note") or "")
+        )
+    if featured_trade_block:
+        _source_parts.append(featured_trade_block)
+    _source_parts.append(
+        "--- MY READINGS AND PROCESS ---\n" + conditions_block
+    )
+    source_block = "\n\n".join(_source_parts)
     if events_summary:
         source_block += (
             "\n\n--- THE MARKET'S OWN REPORT (last 24 hours) ---\n"
@@ -433,6 +718,10 @@ async def generate(
             f"\n\n--- HISTORICAL CONTEXT (last {window_days} days) ---\n"
             + historical_context
         )
+    source_block += (
+        "\n\n--- THE STOCK REPORT ---\n"
+        + stock_report
+    )
 
     # 7. Register and CTA.
     register = "market_analysis"
@@ -448,13 +737,23 @@ async def generate(
     )
 
     # 8. Template and user prompt.
-    template = pick_template()
-    template_id = "observation"  # single template for now
+    # Count prior posts for this subblock to rotate templates.
+    _cnt_row = (await session.execute(sql_text("""
+        SELECT COUNT(*) FROM trading_posts
+        WHERE subblock_id = :sid AND org_id = :oid
+          AND deleted_at IS NULL
+    """), {"sid": subblock["id"], "oid": org_id})).first()
+    article_count_for_template = int(_cnt_row[0] or 0) if _cnt_row else 0
+    template, template_id = pick_template(article_count_for_template)
+    timeframe_label = _TIMEFRAME_LABEL.get(
+        picked_timeframe, picked_timeframe,
+    )
     user_prompt = template.format(
+        symbol=picked_symbol,
+        timeframe_label=timeframe_label,
+        finding_type=finding_type,
+        finding_section=finding_section,
         source_block=source_block,
-        angle=angle,
-        focus=focus,
-        window_days=window_days,
         cta_text=cta_text,
     )
 
@@ -489,6 +788,9 @@ async def generate(
             "window_days": window_days,
             "template_id": template_id,
             "target_words": target_words,
+            "stock_report": stock_report,
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
         },
         target_words=target_words,
         form=None,
@@ -496,6 +798,7 @@ async def generate(
         voice=None,
         skip_verify=False,
         skip_standard=True,
+        temperature=0.3,
     )
 
     post.subject = register
@@ -528,6 +831,32 @@ async def generate(
             log.warning("market_analysis.table_not_inserted",
                         post_id_pre=post.title[:40])
 
+    # Layer 2 — verify the article before persisting. Every check
+    # that failed (times, prices, equity, emotion, invented
+    # numbers, meta-commentary) rejects the article. The
+    # rejection is logged to market_analysis_rejections with a
+    # named reason. The article does not enter trading_posts.
+    article_errors = verify_article(post.body, featured_trade)
+    if article_errors:
+        await log_rejection(
+            session,
+            org_id=org_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+            stage="article_verification",
+            reason=article_errors[0],
+            detail=",".join(article_errors),
+            block_snapshot=featured_trade,
+            article_body=post.body[:8000],
+        )
+        return {
+            "status": "article_rejected",
+            "slug": subblock["slug"],
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
+            "errors": article_errors,
+        }
+
     post_id = await persist_post(
         session,
         org_id=org_id,
@@ -547,6 +876,9 @@ async def generate(
             "window_days": window_days,
             "template_id": template_id,
             "target_words": target_words,
+            "stock_report": stock_report,
+            "symbol": picked_symbol,
+            "timeframe": picked_timeframe,
         },
         source_urls=[],
         symbols=[],
@@ -554,15 +886,57 @@ async def generate(
 
     # 9b. Render the AAPL yearly chart and append it to the body.
     # Failure is non-fatal — the article persists without a chart.
+        # Render the price chart and the four supporting charts.
+    # Each is optional; failures are logged but never raised.
     try:
-        from ..chart import render_yearly_chart
-        chart_url_path = await render_yearly_chart("AAPL")
-        if chart_url_path:
-            chart_md = (
-                "\n\n![AAPL yearly chart](" + chart_url_path + ")\n\n"
-                + "[Download the chart](" + chart_url_path + ")\n"
-            )
-            post.body = post.body.rstrip() + chart_md
+        from ..chart import render_stock_chart
+        from ..charts.article_charts import (
+            render_distribution_chart,
+            render_setup_history_chart,
+            render_timeframe_returns_chart,
+            render_correlation_chart,
+        )
+
+        chart_urls: list[tuple[str, str]] = []
+
+        price_url = await render_stock_chart(
+            session,
+            org_id=org_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
+        )
+        if price_url:
+            chart_urls.append((f"{picked_symbol} {timeframe_label}", price_url))
+
+        dist_url = await render_distribution_chart(
+            session, org_id=org_id, symbol=picked_symbol,
+        )
+        if dist_url:
+            chart_urls.append((f"{picked_symbol} 90-day move distribution", dist_url))
+
+        setup_url = await render_setup_history_chart(
+            session, org_id=org_id, symbol=picked_symbol,
+        )
+        if setup_url:
+            chart_urls.append((f"{picked_symbol} prior setup instances", setup_url))
+
+        tf_url = await render_timeframe_returns_chart(
+            session, org_id=org_id, symbol=picked_symbol,
+        )
+        if tf_url:
+            chart_urls.append((f"{picked_symbol} returns across windows", tf_url))
+
+        corr_url = await render_correlation_chart(
+            session, org_id=org_id, symbol=picked_symbol,
+        )
+        if corr_url:
+            chart_urls.append((f"{picked_symbol} 20-day rolling correlation", corr_url))
+
+        if chart_urls:
+            chart_lines = ["\n\n## Charts\n"]
+            for label, url in chart_urls:
+                chart_lines.append(f"### {label}\n![{label}]({url})\n")
+            post.body = post.body.rstrip() + "\n\n".join(chart_lines)
             await session.execute(sql_text(
                 "UPDATE trading_posts SET body = :body, "
                 "word_count = :wc WHERE id = :pid"
@@ -571,8 +945,10 @@ async def generate(
                 "wc": len(post.body.split()),
                 "pid": post_id,
             })
-            log.info("market_analysis.chart_attached",
-                     post_id=post_id[:8], url=chart_url_path)
+            log.info(
+                "market_analysis.charts_attached",
+                post_id=post_id[:8], count=len(chart_urls),
+            )
     except Exception as exc:
         log.warning("market_analysis.chart_failed",
                     error=str(exc)[:200])
@@ -598,6 +974,8 @@ async def generate(
             focus=focus,
             template_id=template_id,
             post_id=post_id,
+            symbol=picked_symbol,
+            timeframe=picked_timeframe,
         )
     except Exception as exc:
         log.warning("market_analysis.log_run_failed",

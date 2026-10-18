@@ -70,42 +70,83 @@ def pick_combination(recent: set[tuple]) -> tuple[int, str, str]:
 
 
 async def pick_unused_trade(
-    session: AsyncSession, *, org_id: str,
+    session: AsyncSession, *,
+    org_id: str,
+    symbol: str | None = None,
+    timeframe: str | None = None,
 ) -> dict | None:
-    """Return the most recent unused trade. Prefer losses.
+    """Return the most recent unused trade for the picked stock.
 
-    Uses ORDER BY to prefer rows with result < 0 first, then most
-    recent. Returns None if every trade has been used.
+    Filters by symbol and timeframe when given so the trade
+    matches the article's instrument and chart window. Falls
+    back to org-wide when neither is provided (kept for
+    callers that still need the old behavior).
+
+    Prefers losses. Returns None if every trade has been used.
     """
-    row = (await session.execute(sql_text("""
-        SELECT id::text AS id, traded_at, instrument, direction,
-               setup, entry, stop, target, exit, result,
-               hold_time, exit_reason, lesson, contracts
+    where_symbol = ""
+    params: dict = {"oid": org_id}
+    if symbol:
+        where_symbol += " AND symbol = :sym"
+        params["sym"] = symbol
+    if timeframe:
+        where_symbol += " AND timeframe = :tf"
+        params["tf"] = timeframe
+
+    row = (await session.execute(sql_text(f"""
+        SELECT id::text AS id, symbol, timeframe, traded_at,
+               instrument, direction,
+               setup, setup_detail, entry, stop, target, exit, result,
+               hold_time, exit_reason, lesson, contracts,
+               atr_at_entry, percent_of_equity,
+               hesitation_note, entry_time, exit_time
         FROM trade_log
         WHERE org_id = :oid
           AND used_in_article_id IS NULL
           AND deleted_at IS NULL
+          {where_symbol}
         ORDER BY
+            CASE
+                WHEN exit_reason IN ('stop hit', 'target hit') THEN 0
+                ELSE 1
+            END,
             CASE WHEN result < 0 THEN 0 ELSE 1 END,
             traded_at DESC
         LIMIT 1
-    """), {"oid": org_id})).mappings().first()
+    """), params)).mappings().first()
     return dict(row) if row else None
 
 
 async def get_recent_trades(
-    session: AsyncSession, *, org_id: str, limit: int = 5,
+    session: AsyncSession, *,
+    org_id: str,
+    limit: int = 5,
+    symbol: str | None = None,
+    timeframe: str | None = None,
 ) -> list[dict]:
-    """Return the last N trades by traded_at, newest first."""
-    rows = (await session.execute(sql_text("""
+    """Return the last N trades for the picked stock, newest first.
+
+    Filters by symbol and timeframe when given.
+    """
+    where_symbol = ""
+    params: dict = {"oid": org_id, "lim": limit}
+    if symbol:
+        where_symbol += " AND symbol = :sym"
+        params["sym"] = symbol
+    if timeframe:
+        where_symbol += " AND timeframe = :tf"
+        params["tf"] = timeframe
+
+    rows = (await session.execute(sql_text(f"""
         SELECT id::text AS id, traded_at, instrument, direction,
                entry, exit, result, hold_time
         FROM trade_log
         WHERE org_id = :oid
           AND deleted_at IS NULL
+          {where_symbol}
         ORDER BY traded_at DESC
         LIMIT :lim
-    """), {"oid": org_id, "lim": limit})).mappings().all()
+    """), params)).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -130,13 +171,15 @@ async def log_run(
     focus: str,
     template_id: str,
     post_id: str | None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
 ) -> None:
     await session.execute(sql_text("""
         INSERT INTO market_analysis_runs
             (org_id, trade_id, window_days, angle, focus,
-             template_id, post_id)
+             template_id, post_id, symbol, timeframe)
         VALUES
-            (:oid, :tid, :w, :a, :f, :tpl, :pid)
+            (:oid, :tid, :w, :a, :f, :tpl, :pid, :sym, :tf)
     """), {
         "oid": org_id,
         "tid": trade_id,
@@ -145,6 +188,8 @@ async def log_run(
         "f": focus,
         "tpl": template_id,
         "pid": post_id,
+        "sym": symbol,
+        "tf": timeframe,
     })
     await session.commit()
 
