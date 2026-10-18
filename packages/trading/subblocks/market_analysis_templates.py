@@ -131,7 +131,24 @@ number from the list, or delete the sentence.
 
 Every other number in the article (stock report readings,
 dashboard readings, market events) must come from the
-other sections of the source block. Do NOT invent a
+other sections of the source block.
+
+CHARTS ARE EVIDENCE:
+Five charts accompany this article. The source block's
+CHARTS section describes what each chart shows. Reference
+at least two charts by name and state what each shows and
+what it means for the trade.
+
+A chart reference is not "the chart shows +2.68%." That's
+just a number. A chart reference is "the returns chart
+shows the 20-day is up 2.68% but the 12-week is down 2.36%
+- the stock has been oscillating, not trending. That's why
+the percentile reading felt actionable when it wasn't."
+
+If a chart contradicts a dashboard reading, that's the
+finding. Write about it.
+
+ Do NOT invent a
 volatility, spread, or move number.
 
 PRICE ACTION DISCIPLINE:
@@ -297,6 +314,23 @@ number from the list, or delete the sentence.
 Every other number in the article (stock report readings,
 dashboard readings, market events) must come from the
 other sections of the source block.
+
+CHARTS ARE EVIDENCE:
+Five charts accompany this article. The source block's
+CHARTS section describes what each chart shows. Reference
+at least two charts by name and state what each shows and
+what it means for the trade.
+
+A chart reference is not "the chart shows +2.68%." That's
+just a number. A chart reference is "the returns chart
+shows the 20-day is up 2.68% but the 12-week is down 2.36%
+- the stock has been oscillating, not trending. That's why
+the percentile reading felt actionable when it wasn't."
+
+If a chart contradicts a dashboard reading, that's the
+finding. Write about it.
+
+
 
 PRICE ACTION DISCIPLINE:
 Every bar-level detail must come from the PRICE ACTION

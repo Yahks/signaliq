@@ -18,6 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
 
+# Access the same data helpers the chart renderers use so the
+# CHARTS block describes the exact numbers the .png files show.
+from ..scrapers.market_history import _percentile
+
 log = get_logger(__name__)
 
 
@@ -236,18 +240,37 @@ def build_exact_numbers(t: dict[str, Any]) -> str:
         except Exception:
             return str(dt)
 
+    # percent_of_equity may be None on older trades. Compute
+    # it from the trader's starting balance. Every article's
+    # account block shows $200,000; use that constant.
+    pct = t.get("percent_of_equity")
+    if pct is None:
+        try:
+            pct = (float(t["result"]) / 200000.0) * 100.0
+        except (TypeError, ValueError, KeyError):
+            pct = 0.0
+    pct_str = f"{pct:.2f}"
+
+    # Format every numeric field to 2 decimals so the model
+    # reads a clean value instead of a 47-digit float.
+    def _f(key):
+        try:
+            return f"{float(t[key]):.2f}"
+        except (TypeError, ValueError, KeyError):
+            return "unknown"
+
     return (
         "--- USE THESE EXACT TRADE NUMBERS ---\n"
-        f"Entry price: {t['entry']}\n"
-        f"Stop price: {t['stop']}\n"
-        f"Target price: {t['target']}\n"
-        f"Exit price: {t['exit']}\n"
-        f"Result: {t['result']} dollars\n"
+        f"Entry price: {_f('entry')}\n"
+        f"Stop price: {_f('stop')}\n"
+        f"Target price: {_f('target')}\n"
+        f"Exit price: {_f('exit')}\n"
+        f"Result: {_f('result')} dollars\n"
         f"Contracts: {t['contracts']}\n"
-        f"ATR at entry: {t['atr_at_entry']}\n"
+        f"ATR at entry: {_f('atr_at_entry')}\n"
         f"Entry time: {_fmt_time(t['entry_time'])}\n"
         f"Exit time: {_fmt_time(t['exit_time'])}\n"
-        f"Percent of equity: {t.get('percent_of_equity', 'unknown')}%\n"
+        f"Percent of equity: {pct_str}%\n"
         f"Symbol: {t['symbol']}\n"
         f"Direction: {t['direction']}\n"
         "\n"
@@ -258,4 +281,172 @@ def build_exact_numbers(t: dict[str, Any]) -> str:
         "this list, the article is wrong."
     )
 
+# ──── CHARTS block ────
 
+async def build_charts_block(
+    session: AsyncSession, *,
+    org_id: str, symbol: str, timeframe: str,
+) -> str:
+    """Build the CHARTS section from the same data the chart
+    renderers use. Describes five charts with the numbers they
+    show and what those numbers mean for the trade.
+
+    Text only. No image, no graphic. The model reads this text
+    and references the charts in prose.
+
+    Returns "" if the price series is too short.
+    """
+    import math
+
+    bars = (await session.execute(sql_text(
+        "SELECT trade_date, close FROM market_history "
+        "WHERE org_id = :oid AND symbol = :sym "
+        "AND timeframe = :tf AND deleted_at IS NULL "
+        "ORDER BY trade_date ASC"
+    ), {"oid": org_id, "sym": symbol, "tf": timeframe})).mappings().all()
+
+    if len(bars) < 3:
+        return ""
+
+    closes = [float(b["close"]) for b in bars]
+    dates = [str(b["trade_date"]) for b in bars]
+
+    lines = [
+        "--- CHARTS (evidence the article can reference) ---",
+        "",
+        "Five charts accompany this article. Each is evidence "
+        "the article can reference wherever the argument needs "
+        "it. Reference at least two by name. State what the "
+        "chart shows and what it means for the trade.",
+        "",
+    ]
+
+    # 1. Daily view.
+    current = closes[-1]
+    recent = closes[-60:] if len(closes) >= 60 else closes
+    recent_dates = dates[-60:] if len(dates) >= 60 else dates
+    hi = max(recent); hi_i = recent.index(hi)
+    lo = min(recent); lo_i = recent.index(lo)
+    change_pct = ((recent[-1] - recent[0]) / recent[0]) * 100.0 if recent[0] else 0.0
+    trend = "up" if change_pct > 0 else ("down" if change_pct < 0 else "flat")
+    lines.append(f"THE DAILY VIEW: {symbol} {len(recent)}-bar close chart.")
+    lines.append(f"  Current: {current:.2f}")
+    lines.append(f"  Recent high: {hi:.2f} ({recent_dates[hi_i]})")
+    lines.append(f"  Recent low: {lo:.2f} ({recent_dates[lo_i]})")
+    lines.append(f"  Trajectory: {trend} {change_pct:+.2f}% over the window.")
+    lines.append("")
+
+    # 2. Distribution (90 days).
+    if len(closes) >= 21:
+        d90 = closes[-91:] if len(closes) >= 91 else closes
+        rets = []
+        for k in range(1, len(d90)):
+            if d90[k - 1]:
+                rets.append((d90[k] - d90[k - 1]) / d90[k - 1] * 100.0)
+        ups = [r for r in rets if r > 0]
+        downs = [r for r in rets if r < 0]
+        max_up = max(ups) if ups else 0.0
+        max_down = min(downs) if downs else 0.0
+        skew = ("downside tail extends farther" if abs(max_down) > max_up
+                else ("upside tail extends farther" if max_up > abs(max_down)
+                      else "roughly symmetric"))
+        lines.append(f"THE DISTRIBUTION: {symbol} 90-day daily-return histogram.")
+        lines.append(f"  Up days: {len(ups)}. Down days: {len(downs)}.")
+        lines.append(f"  Largest up move: +{max_up:.2f}%. Largest down move: {max_down:.2f}%.")
+        lines.append(f"  Skew: {skew}.")
+        lines.append("")
+
+    # 3. Returns across windows.
+    tf_rows = (await session.execute(sql_text(
+        "SELECT timeframe, trade_date, close FROM market_history "
+        "WHERE org_id = :oid AND symbol = :sym AND deleted_at IS NULL "
+        "AND timeframe IN ('1d', '1wk', '1mo', '1y') "
+        "ORDER BY timeframe, trade_date ASC"
+    ), {"oid": org_id, "sym": symbol})).mappings().all()
+    tf_series: dict[str, list[float]] = {}
+    for r in tf_rows:
+        tf_series.setdefault(r["timeframe"], []).append(float(r["close"]))
+    windows = [("1d", 20, "20-day"), ("1wk", 12, "12-week"),
+               ("1mo", 6, "6-month"), ("1y", 5, "5-year")]
+    window_returns = []
+    for tf_key, n_ret, label in windows:
+        series = tf_series.get(tf_key) or []
+        if len(series) >= n_ret + 1 and series[-n_ret - 1]:
+            old = series[-n_ret - 1]
+            new = series[-1]
+            window_returns.append((label, (new - old) / old * 100.0))
+    if window_returns:
+        neg = [r for _, r in window_returns if r < 0]
+        pos = [r for _, r in window_returns if r > 0]
+        lines.append(f"THE RETURNS: {symbol} return by window.")
+        for label, r in window_returns:
+            lines.append(f"  {label}: {r:+.2f}%")
+        if neg and pos:
+            lines.append(
+                f"  Interpretation: {len(neg)} of {len(window_returns)} "
+                f"horizons are negative, {len(pos)} positive. The stock "
+                f"has not been uniformly strong."
+            )
+        lines.append("")
+
+    # 4. Setup history.
+    if len(closes) >= 30:
+        cur_pct = _percentile(closes, closes[-1])
+        if cur_pct is not None:
+            band_lo = max(0, cur_pct - 5)
+            band_hi = min(100, cur_pct + 5)
+            hits = []
+            for k in range(len(closes) - 16, 20, -1):
+                window_k = closes[:k+1]
+                pct_k = _percentile(window_k, window_k[-1])
+                if pct_k is None:
+                    continue
+                if band_lo <= pct_k <= band_hi:
+                    f5 = ((closes[k+5] - closes[k]) / closes[k] * 100.0) if k + 5 < len(closes) and closes[k] else None
+                    f10 = ((closes[k+10] - closes[k]) / closes[k] * 100.0) if k + 10 < len(closes) and closes[k] else None
+                    hits.append((dates[k], f5, f10))
+                    if len(hits) >= 3:
+                        break
+            if hits:
+                lines.append(
+                    f"THE SETUP HISTORY: {symbol} last {len(hits)} times in "
+                    f"the {band_lo}-{band_hi} percentile band."
+                )
+                for d, f5, f10 in hits:
+                    f5s = f"{f5:+.2f}%" if f5 is not None else "n/a"
+                    f10s = f"{f10:+.2f}%" if f10 is not None else "n/a"
+                    lines.append(f"  {d}: +5 days {f5s}, +10 days {f10s}")
+                downs = [f5 for _, f5, _ in hits if f5 is not None and f5 < 0]
+                if downs:
+                    lines.append(
+                        f"  Interpretation: {len(downs)} of "
+                        f"{len(hits)} went down within 5 days."
+                    )
+                lines.append("")
+
+    # 5. Correlation.
+    spy_bars = (await session.execute(sql_text(
+        "SELECT trade_date, close FROM market_history "
+        "WHERE org_id = :oid AND symbol = 'SPY' AND timeframe = '1d' "
+        "AND deleted_at IS NULL ORDER BY trade_date ASC LIMIT 60"
+    ), {"oid": org_id})).mappings().all()
+    if spy_bars and len(spy_bars) >= 21:
+        spy = [float(b["close"]) for b in spy_bars]
+        n = min(20, len(spy), len(closes))
+        sr = [(closes[k] - closes[k-1]) / closes[k-1] for k in range(len(closes)-n, len(closes)) if closes[k-1]]
+        pr = [(spy[k] - spy[k-1]) / spy[k-1] for k in range(len(spy)-n, len(spy)) if spy[k-1]]
+        if len(sr) == len(pr) and len(sr) > 2:
+            ms = sum(sr) / len(sr)
+            mp = sum(pr) / len(pr)
+            cov = sum((sr[k]-ms)*(pr[k]-mp) for k in range(len(sr)))
+            vs = sum((sr[k]-ms)**2 for k in range(len(sr)))
+            vp = sum((pr[k]-mp)**2 for k in range(len(pr)))
+            denom = math.sqrt(vs * vp)
+            corr = cov / denom if denom else 0.0
+            lines.append(
+                f"THE CORRELATION: {symbol} vs SPY, {n}-day rolling correlation."
+            )
+            lines.append(f"  Current: {corr:+.2f}.")
+            lines.append("")
+
+    return "\n".join(lines)

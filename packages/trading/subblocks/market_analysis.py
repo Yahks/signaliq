@@ -109,6 +109,7 @@ from .market_analysis_quality import (
     verify_article,
     log_rejection,
     build_exact_numbers,
+    build_charts_block,
 )
 from ..scrapers.market_history import build_stock_report
 
@@ -704,6 +705,14 @@ async def generate(
     # numbers the model is allowed to use. The block was
     # validated before the LLM call, so this list is complete.
     _source_parts.append(build_exact_numbers(featured_trade))
+    # CHARTS - the five charts attached to this article, as
+    # text descriptions of what each chart shows.
+    _charts_block = await build_charts_block(
+        session, org_id=org_id, symbol=picked_symbol,
+        timeframe=picked_timeframe,
+    )
+    if _charts_block:
+        _source_parts.append(_charts_block)
     if pattern:
         _source_parts.append(
             "--- THE PATTERN IN MY HISTORY ---\n"
