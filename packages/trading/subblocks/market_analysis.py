@@ -757,6 +757,15 @@ async def generate(
             "--- MY ACCOUNT ---\n" + account_block
         )
 
+    # ── Template selection (moved up so we can branch on template_id)
+    _cnt_row = (await session.execute(sql_text("""
+        SELECT COUNT(*) FROM trading_posts
+        WHERE subblock_id = :sid AND org_id = :oid
+          AND deleted_at IS NULL
+    """), {"sid": subblock["id"], "oid": org_id})).first()
+    article_count_for_template = int(_cnt_row[0] or 0) if _cnt_row else 0
+    template, template_id = pick_template(article_count_for_template)
+
     source_block = "\n\n".join(_source_parts)
     if events_summary:
         source_block += (
@@ -773,6 +782,34 @@ async def generate(
         + stock_report
     )
 
+    # ── If the setup template was picked, rebuild the source block
+    #    without the trade facts. Setup articles analyze the chart's
+    #    percentile position, not a specific trade.
+    if template_id == "setup":
+        _setup_parts = []
+        if conditions_block:
+            _setup_parts.append(
+                "--- MY READINGS AND PROCESS ---\n" + conditions_block
+            )
+        if account_block:
+            _setup_parts.append("--- MY ACCOUNT ---\n" + account_block)
+        if events_summary:
+            _setup_parts.append(
+                "--- THE MARKET'S OWN REPORT (last 24 hours) ---\n"
+                + events_summary
+            )
+        if historical_context:
+            _setup_parts.append(
+                f"--- HISTORICAL CONTEXT (last {window_days} days) ---\n"
+                + historical_context
+            )
+        _setup_parts.append(
+            "--- THE STOCK REPORT ---\n" + stock_report
+        )
+        if _charts_block:
+            _setup_parts.append(_charts_block)
+        source_block = "\n\n".join(_setup_parts)
+
     # 7. Register and CTA.
     register = "market_analysis"
     target_words = 1000
@@ -787,14 +824,6 @@ async def generate(
     )
 
     # 8. Template and user prompt.
-    # Count prior posts for this subblock to rotate templates.
-    _cnt_row = (await session.execute(sql_text("""
-        SELECT COUNT(*) FROM trading_posts
-        WHERE subblock_id = :sid AND org_id = :oid
-          AND deleted_at IS NULL
-    """), {"sid": subblock["id"], "oid": org_id})).first()
-    article_count_for_template = int(_cnt_row[0] or 0) if _cnt_row else 0
-    template, template_id = pick_template(article_count_for_template)
     timeframe_label = _TIMEFRAME_LABEL.get(
         picked_timeframe, picked_timeframe,
     )
@@ -815,7 +844,7 @@ async def generate(
     # blocks (charts, trade log, account). The verifier is too strict for
     # this format and flags paraphrased chart data. The delivery check
     # already guarantees the structure. Skip the verifier.
-    _skip_verify = (template_id == "trade")
+    _skip_verify = template_id in ("trade", "setup")
 
     post = await call_llm_json_verified(
         session,
@@ -894,6 +923,7 @@ async def generate(
         org_id=org_id,
         subblock=subblock,
         post=post,
+        template_id=template_id,
         source_payload={
             "register": register,
             "cta_text": cta_text,

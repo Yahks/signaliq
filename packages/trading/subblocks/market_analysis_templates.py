@@ -45,11 +45,50 @@ SOURCE BLOCK:
 Write the article now. Aim for 850 to 1230 words."""
 
 
-TEMPLATES = [_TEMPLATE_TRADE]
-TEMPLATE_IDS = ["trade"]
+_TEMPLATE_SETUP = """You are writing a setup analysis for quantitative traders.
+
+You have been given a stock report with a setup history, a distribution histogram, and a broader market context. There is no featured trade. Your job is to write about the SETUP ITSELF — what the chart is offering today, what the history says about it, and what you decided to do.
+
+Do not invent a trade. Do not talk about entries, stops, or exits. The subject is the setup.
+
+KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**. Every rule must be about how to read {focus} through {angle}.
+
+VOICE & STYLE
+- Write in first person. ("I measured", "My model", "I now require").
+- Sound like a quant talking to another quant. Use terms like sample size, forward returns, t-statistic, expectancy, significance.
+- Do NOT write a retail survival guide. Do NOT write generic advice.
+
+BEAT SHAPE
+1. THE SETUP: What the chart shows today. State the current close, the percentile, the band. Be specific.
+2. THE STATISTICS: What the setup history says. Quote the N, the win rate, the expectancy, the t-statistic, the significance verdict. Do NOT invent a sample. If the source block gives you "N=3, win rate=33%, t-stat=-1.13, significant=NO", quote those exact numbers.
+3. THE DECISION: What I did about it. Did I take the setup, skip it, or wait for confirmation? State the reasoning in terms of the statistics.
+4. THE OUTCOME: What the price did over the following days. Quote the forward returns from the setup history (e.g., "the next 5 days were -2.15%, -1.43%, and -2.26%").
+5. THE LESSON: What the setup's outcome taught me, in statistical terms. Did the edge validate? Did the sample prove too small?
+6. THE FIX: What I now do when I see this setup. You MUST start this paragraph with the exact phrase "I now" or "Now I".
+7. THE FINAL RULE: One sentence. A hard-won discipline. Not a question.
+
+HARD RULES (The Delivery Check will fail if you break these)
+1. EVERY NUMBER MUST COME FROM THE SOURCE BLOCK. Do not invent a price, a date, an ATR, a percentile, or a forward return.
+2. NO BLOCK-HEADER NAMES IN PROSE. Do NOT write "the SETUP HISTORY" or "the DISTRIBUTION". Describe what the chart shows.
+3. NO ENUMERATED LISTS. No "First," "Second," "Third," "Next," "Finally."
+4. NO CAUSAL LANGUAGE. No "signaled," "suggested," "indicated," "implied."
+5. NO META-COMMENTARY. No "in this article," "let me explain," "stay tuned."
+6. NO QUESTIONS AT THE END. The final beat is a rule, not a checklist.
+
+SOURCE BLOCK:
+{source_block}
+
+Write the article now. Aim for 850 to 1230 words."""
+
+
+TEMPLATES = [_TEMPLATE_TRADE, _TEMPLATE_SETUP]
+TEMPLATE_IDS = ["trade", "setup"]
 
 def pick_template(article_count: int = 0) -> tuple[str, str]:
-    """Return (template_string, template_id) for this article."""
+    """Return (template_string, template_id) for this article.
+
+    Alternates: trade, setup, trade, setup, ...
+    """
     if not TEMPLATES:
         return "", "unknown"
     idx = article_count % len(TEMPLATES)

@@ -218,12 +218,56 @@ async def detect_pattern(
     # Pick the candidate with the largest win-rate gap.
     best = max(candidates, key=lambda c: c["gap"])
 
-    # Pick the featured trade: the worst loss inside the pattern bucket.
+    # Pick the featured trade. Rotate across outcomes so every article
+    # isn't a stop-loss post-mortem. The bucket contains a mix of
+    # winners, losers, scratches, and partial exits; we want each kind
+    # to get its turn as the article's centerpiece.
     in_pattern_trades = [t for t, b in zip(trades, best["mask"]) if b]
     if not in_pattern_trades:
         log.info("pattern.no_in_pattern_trades", name=best["name"])
         return None
-    featured = min(in_pattern_trades, key=lambda t: float(t.get("result") or 0))
+
+    # Split by outcome.
+    wins = [t for t in in_pattern_trades if float(t.get("result") or 0) > 0]
+    losses = [t for t in in_pattern_trades if float(t.get("result") or 0) < 0]
+    scratches = [
+        t for t in in_pattern_trades
+        if abs(float(t.get("result") or 0)) < 10
+    ]
+
+    # Rotation index — the count of prior articles on this org, modulo 4.
+    # Rotation: worst loss -> biggest win -> best scratch -> second-worst loss.
+    from sqlalchemy import text as _sql
+    _count_row = (await session.execute(_sql(
+        "SELECT COUNT(*) FROM trading_posts "
+        "WHERE org_id = :oid AND deleted_at IS NULL "
+        "AND subblock_id = (SELECT id FROM trading_subblocks "
+        "WHERE slug = 'market_analysis' LIMIT 1)"
+    ), {"oid": org_id})).scalar() or 0
+    rotation = _count_row % 4
+
+    featured = None
+    if rotation == 0 and losses:
+        # Worst loss — the original behavior.
+        featured = min(losses, key=lambda t: float(t.get("result") or 0))
+    elif rotation == 1 and wins:
+        # Biggest win — teaches what worked.
+        featured = max(wins, key=lambda t: float(t.get("result") or 0))
+    elif rotation == 2 and scratches:
+        # Best scratch — teaches a near-miss lesson.
+        featured = max(scratches, key=lambda t: float(t.get("result") or 0))
+    elif rotation == 3 and len(losses) >= 2:
+        # Second-worst loss — a different flavor of loss.
+        sorted_losses = sorted(
+            losses, key=lambda t: float(t.get("result") or 0)
+        )
+        featured = sorted_losses[1]
+
+    # Fallback: if the rotation lands on an empty bucket, use worst loss.
+    if featured is None:
+        featured = min(
+            in_pattern_trades, key=lambda t: float(t.get("result") or 0)
+        )
 
     # Behavioral note - computed from the featured trade vs. the pool.
     behavior = _behavioral_note(featured, trades, best)
@@ -304,7 +348,18 @@ def _behavioral_note(
                 f"to {featured.get('direction')}."
             )
 
-    # Fallback
+    # Fallback — depends on the outcome.
+    if feat_result > 0:
+        return (
+            f"The gain on this trade was ${abs(feat_result):.0f}. "
+            f"Size was {feat_size:.0f}, median was {median:.0f}."
+        )
+    if abs(feat_result) < 10:
+        return (
+            f"This trade was a scratch (${feat_result:.2f}). "
+            f"Size was {feat_size:.0f}, median was {median:.0f}."
+        )
     return (
-        f"The loss on this trade was ${abs(feat_result):.0f}."
+        f"The loss on this trade was ${abs(feat_result):.0f}. "
+        f"Size was {feat_size:.0f}, median was {median:.0f}."
     )

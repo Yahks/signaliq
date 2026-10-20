@@ -1070,6 +1070,7 @@ async def persist_post(
     source_payload: dict[str, Any],
     source_urls: list[str] | None = None,
     symbols: list[str] | None = None,
+    template_id: str | None = None,
 ) -> str:
     # S.9.39 — the LLM path runs sync DB writes (ai_calls),
     # acquires advisory locks (pick_register), and handles
@@ -1096,7 +1097,7 @@ async def persist_post(
     if register:
         try:
             from ..registers import delivery_check, DeliveryCheckError
-            delivery_check(post.body, register)
+            delivery_check(post.body, register, template_id=template_id)
         except DeliveryCheckError as exc:
             import traceback as _TBI
             _TBI.print_exc()

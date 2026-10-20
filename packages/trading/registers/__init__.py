@@ -1125,8 +1125,20 @@ def _check_has_fix(text: str) -> str | None:
     return "fix_missing"
 
 
-def delivery_check(text: str, register: str) -> None:
-    """Run the full delivery check. Raises DeliveryCheckError on failure."""
+def delivery_check(
+    text: str,
+    register: str,
+    template_id: str | None = None,
+) -> None:
+    """Run the full delivery check. Raises DeliveryCheckError on failure.
+
+    template_id controls which checks apply. Setup articles have no
+    trade, so the trade-specific checks (precise times, exact prices,
+    emotional moment) are skipped. Trade articles run the full set.
+    """
+    _is_setup = (template_id == "setup")
+    _skip_trade_checks = _is_setup
+
     if register not in REGISTERS:
         raise DeliveryCheckError([f"unknown register: {register}"])
     violations = (
@@ -1145,7 +1157,10 @@ def delivery_check(text: str, register: str) -> None:
     # market_analysis requires a clock-time narrative and a
     # stated fix. Both are content requirements, not beats.
     if register == "market_analysis":
-        _v = _check_precise_times(text)
+        if not _skip_trade_checks:
+            _v = _check_precise_times(text)
+        else:
+            _v = None
         if _v:
             violations.append(_v)
         _v = _check_has_fix(text)
