@@ -420,6 +420,41 @@ def _percentile(values: list[float], v: float) -> int | None:
     return int(round(below / len(values) * 100))
 
 
+
+
+def _forward_return_stats(returns: list[float]) -> dict:
+    """Compute sample size, win rate, expectancy, stdev, and max drawdown
+    for a list of forward returns (in percent).
+    """
+    if not returns:
+        return {}
+    n = len(returns)
+    wins = [r for r in returns if r > 0]
+    win_rate = len(wins) / n * 100.0
+    expectancy = sum(returns) / n
+    if n > 1:
+        mean = expectancy
+        var = sum((r - mean) ** 2 for r in returns) / (n - 1)
+        std = var ** 0.5
+    else:
+        std = 0.0
+    # Max drawdown across the sequence (in percent of running peak)
+    peak = returns[0]
+    dd = 0.0
+    for r in returns:
+        if r > peak:
+            peak = r
+        dd = min(dd, r - peak)
+    return {
+        "n": n,
+        "wins": len(wins),
+        "losses": n - len(wins),
+        "win_rate": win_rate,
+        "expectancy": expectancy,
+        "std": std,
+        "max_dd": dd,
+    }
+
 async def build_stock_report(
     session: AsyncSession,
     *,
@@ -648,6 +683,32 @@ async def build_stock_report(
                     hits.append((k, f5, f10))
                     if len(hits) >= 3:
                         break
+
+            # Complete statistics for the setup.
+            f5_returns = [h[1] for h in hits if h[1] is not None]
+            f10_returns = [h[2] for h in hits if h[2] is not None]
+            if f5_returns:
+                s = _forward_return_stats(f5_returns)
+                parts.append(
+                    f"  Complete Statistics (5-day forward): "
+                    f"N={s['n']}, "
+                    f"Win rate={s['win_rate']:.1f}% "
+                    f"({s['wins']}W/{s['losses']}L), "
+                    f"Expectancy={s['expectancy']:+.2f}%, "
+                    f"Std dev={s['std']:.2f}%, "
+                    f"Max drawdown={s['max_dd']:+.2f}%"
+                )
+            if f10_returns:
+                s = _forward_return_stats(f10_returns)
+                parts.append(
+                    f"  Complete Statistics (10-day forward): "
+                    f"N={s['n']}, "
+                    f"Win rate={s['win_rate']:.1f}% "
+                    f"({s['wins']}W/{s['losses']}L), "
+                    f"Expectancy={s['expectancy']:+.2f}%, "
+                    f"Std dev={s['std']:.2f}%, "
+                    f"Max drawdown={s['max_dd']:+.2f}%"
+                )
             if hits:
                 parts.append(
                     f"The last {len(hits)} times the percentile "
