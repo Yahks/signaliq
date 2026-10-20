@@ -347,15 +347,13 @@ REGISTERS: dict[str, str] = {
         "  Sources for this block (cite from RESEARCH SOURCES only): (uncited mechanism — a composite of the volatility and breadth readings).\n"
         "  Evidence rule. CONDITIONS: every number must appear in the payload's CURRENT READINGS. Do not invent. MECHANISMS: cite only from the RESEARCH SOURCES block. HISTORY: draw from the research block or state the comparison is unavailable."
     ),
-  "market_analysis": (
-    "Register: market_analysis (a systematic trader's trade notebook).\n"
-    "  This is a note you wrote to yourself after closing a trade. It was never going to be published, so it isn't polished and it doesn't explain itself. You know the system, the instrument and the vocabulary. Never define a term, never justify why the system works, never describe a chart. Say what you saw, what you did, how it went.\n"
-    "  First person, mostly past tense. Plain words, short sentences, fragments are fine, contractions. Start with the trade itself, not with scene-setting or market background. Never write 'the market' without saying which one.\n"
-    "  Write only what the block supports. You don't remember what you felt or thought unless the block says so. No invented hesitation, doubt, surprise or reasoning. What makes the note sound real is what you leave out and what you bother to keep.\n"
-    "  Be uneven. Spend your words where the trade was odd, costly, or where two numbers in the block pulled against each other. Give routine parts a clause or nothing. Mention some numbers in passing and drop others. Do not cover every field in the block and do not follow its order.\n"
-    "  No transitions like 'however', 'overall', 'ultimately'. No summary and no moral. When the result is stated, stop. Only add a change to your own process if the outcome in the block plainly points to one, and then say it in one short sentence.\n"
-    "  Safety: no predictions, price targets or signals. Name only the trade's own ticker. Every number traces to the block. Do not invent numbers.\n"
-),
+ "market_analysis": (
+        "Register: market_analysis (a systematic quantitative trader).\n"
+        "  You are a systematic quantitative trader writing a professional blog for other quants. You are analyzing your trades, your data, and your edge.\n"
+        "  Write in first person. 'I measured', 'I observed', 'My model'. Show the emotion of sitting in a live position, but back every rule with the hard numbers from the source block.\n"
+        "  Do NOT write a retail survival guide. Do NOT write generic trading advice like 'never trust a pattern'. Talk about sample sizes, forward returns, filtering logic, and risk-of-ruin.\n"
+        "  Do NOT write a generic checklist of questions at the end. End with a hard-earned, statistically grounded rule.\n"
+    ),
 
     "market-daily": (
         "Register: market-daily (the trader's day at the desk).\n"
@@ -513,11 +511,7 @@ TIER_RULES: dict[str, str] = {
         "Length: 300-400 words.\n"
         "Vocabulary: plain English. Translate every technical term "
         "on first use.\n"
-        "Reader placement: mandatory. At least one sentence of the "
-        "form 'if you hold X, you felt Y.'\n"
-        "Writer moment: exactly one sentence, a claim based on "
-        "experience.\n"
-        "Closing: a two-way test — 'if X, then Y; if Z, then noise.'"
+  
     ),
     "tier_2": (
         "Audience: intermediate retail investors.\n"
@@ -1123,7 +1117,7 @@ def _check_has_fix(text: str) -> str | None:
     trader now makes based on the trade."""
     import re
     patterns = [
-        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will (?:now|always|never))\b",
+        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will|The fix is|My fix is)\b",
     ]
     for p in patterns:
         if re.search(p, text, re.IGNORECASE):
@@ -1232,8 +1226,8 @@ SUBBLOCK_TIERS: dict[str, dict[str, list[str]]] = {
         # voice and the beat shape; the six block-bN-* registers
         # are retired for this subblock.
         "tier_1": ["market_analysis"],
-        "tier_2": ["market_analysis"],
-        "tier_3": ["market_analysis"],
+        "tier_1": ["market_analysis"],
+        "tier_1": ["market_analysis"],
     },
     "market_condition": {
         "tier_1": ["market-regime"],

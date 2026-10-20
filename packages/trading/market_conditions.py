@@ -105,10 +105,13 @@ def format_conditions_block(
     mc: dict[str, str],
     research_block: list[dict[str, str]] | None = None,
     include_readings: bool = True,
+    columns: list[str] | None = None,
 ) -> str:
     """Format the market-conditions dict for the model prompt.
 
-    Returns an empty string if `mc` is empty.
+    `columns` restricts which of the six text columns are included.
+    Default (None): all six. Subblocks that need only a subset
+    (e.g. market_analysis: adjustments only) pass an explicit list.
     """
     if not mc:
         return ""
@@ -120,8 +123,11 @@ def format_conditions_block(
         "adjustments":  "PROCESS ADJUSTMENTS",
         "mechanisms":   "MECHANISMS I UNDERSTAND",
     }
+    _cols = columns if columns is not None else COLS
     parts: list[str] = []
-    for c in COLS:
+    for c in _cols:
+        if c not in labels:
+            continue
         v = (mc.get(c) or "").strip()
         if not v:
             continue

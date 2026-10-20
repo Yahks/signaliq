@@ -364,10 +364,17 @@ def build_trade_facts(t: dict[str, Any]) -> str | None:
 async def build_charts_block(
     session: AsyncSession, *,
     org_id: str, symbol: str, timeframe: str,
+    as_of=None,
 ) -> str:
     """Build the CHARTS section from the same data the chart
     renderers use. Describes five charts with the numbers they
-    show and what those numbers mean for the trade.
+    show as of the trade's entry time.
+
+    When `as_of` is set, every window ends at that date. The
+    series is truncated to bars with trade_date <= as_of, so
+    closes[-1] is the entry bar's close, recent[-60:] is the
+    60 bars before entry, and setup history only counts setups
+    whose forward window ended before entry.
 
     Text only. No image, no graphic. The model reads this text
     and references the charts in prose.
@@ -376,12 +383,20 @@ async def build_charts_block(
     """
     import math
 
+    _asof_clause = ""
+    _params = {"oid": org_id, "sym": symbol, "tf": timeframe}
+    if as_of is not None:
+        _asof_date = as_of.date() if hasattr(as_of, "date") else as_of
+        _asof_clause = "AND trade_date <= :asof "
+        _params["asof"] = _asof_date
+
     bars = (await session.execute(sql_text(
         "SELECT trade_date, close FROM market_history "
         "WHERE org_id = :oid AND symbol = :sym "
         "AND timeframe = :tf AND deleted_at IS NULL "
+        + _asof_clause +
         "ORDER BY trade_date ASC"
-    ), {"oid": org_id, "sym": symbol, "tf": timeframe})).mappings().all()
+    ), _params)).mappings().all()
 
     if len(bars) < 3:
         return ""
@@ -435,12 +450,18 @@ async def build_charts_block(
         lines.append("")
 
     # 3. Returns across windows.
+    _tf_params = {"oid": org_id, "sym": symbol}
+    _tf_asof = ""
+    if as_of is not None:
+        _tf_asof = "AND trade_date <= :asof "
+        _tf_params["asof"] = _asof_date
     tf_rows = (await session.execute(sql_text(
         "SELECT timeframe, trade_date, close FROM market_history "
         "WHERE org_id = :oid AND symbol = :sym AND deleted_at IS NULL "
         "AND timeframe IN ('1d', '1wk', '1mo', '1y') "
+        + _tf_asof +
         "ORDER BY timeframe, trade_date ASC"
-    ), {"oid": org_id, "sym": symbol})).mappings().all()
+    ), _tf_params)).mappings().all()
     tf_series: dict[str, list[float]] = {}
     for r in tf_rows:
         tf_series.setdefault(r["timeframe"], []).append(float(r["close"]))
@@ -503,11 +524,21 @@ async def build_charts_block(
                 lines.append("")
 
     # 5. Correlation.
+    _spy_params = {"oid": org_id}
+    _spy_asof = ""
+    if as_of is not None:
+        _spy_asof = "AND trade_date <= :asof "
+        _spy_params["asof"] = _asof_date
     spy_bars = (await session.execute(sql_text(
         "SELECT trade_date, close FROM market_history "
         "WHERE org_id = :oid AND symbol = 'SPY' AND timeframe = '1d' "
-        "AND deleted_at IS NULL ORDER BY trade_date ASC LIMIT 60"
-    ), {"oid": org_id})).mappings().all()
+        "AND deleted_at IS NULL "
+        + _spy_asof +
+        "ORDER BY trade_date ASC"
+    ), _spy_params)).mappings().all()
+    # Keep only the last 60 SPY bars before as_of.
+    if as_of is not None and spy_bars and len(spy_bars) > 60:
+        spy_bars = spy_bars[-60:]
     if spy_bars and len(spy_bars) >= 21:
         spy = [float(b["close"]) for b in spy_bars]
         n = min(20, len(spy), len(closes))

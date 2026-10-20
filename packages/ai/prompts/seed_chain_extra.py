@@ -76,6 +76,12 @@ A claim is SUPPORTED if:
     0.514 is fine).
   - It draws a conclusion that follows directly from one
     or more values in SOURCE DATA.
+  - It quotes a price, a high, a low, a percentile, a histogram 
+    count, or a correlation that appears in the STOCK REPORT or 
+    CHART DATA block. Do NOT flag chart-derived numbers. 
+    If the stock report contains the value but not the date, 
+    assume the date is supported. Do NOT flag a date attached to 
+    a sourced value.
   - It draws on a mechanism that is named and cited in the
     SOURCE DATA's RESEARCH SOURCES block.
   - It states that a historical comparison is unavailable, or

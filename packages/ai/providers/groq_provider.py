@@ -108,6 +108,28 @@ class GroqProvider(ModelProvider):
         except httpx.HTTPError as exc:
             raise ProviderError(f"Groq connection failed: {exc}") from exc
 
+        # DEBUG: print the full request and response to stdout.
+        # Visible in `docker compose logs api` and stdout capture.
+        import os as _os_dbg
+        if _os_dbg.environ.get("GROQ_DEBUG", "1") == "1":
+            import json as _json
+            print("=" * 80)
+            print("=== GROQ REQUEST ===")
+            print(_json.dumps(payload, indent=2, default=str))
+            print("=== GROQ RESPONSE ===")
+            print(r.text)
+            print("=" * 80)
+
+        import os as _os_dbg
+        if _os_dbg.environ.get("GROQ_DEBUG", "1") == "1":
+            import json as _json
+            print("=" * 80)
+            print("=== GROQ REQUEST ===")
+            print(_json.dumps(payload, indent=2, default=str))
+            print("=== GROQ RESPONSE ===")
+            print(r.text)
+            print("=" * 80)
+
         if r.status_code != 200:
             raise ProviderError(f"Groq HTTP {r.status_code}: {r.text[:400]}")
 

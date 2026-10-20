@@ -260,14 +260,13 @@ def _behavioral_note(
         return (
             f"The trader's median size is {median:.0f}. On this trade the "
             f"trader took {feat_size:.0f} - {feat_size / median:.1f}x the "
-            f"median. That deviation is the moment the trader tried to make "
-            f"a loss disappear."
+            f"median."
         )
     if feat_size <= 0.5 * median and feat_size > 0:
         return (
             f"The trader's median size is {median:.0f}. On this trade the "
             f"trader took {feat_size:.0f} - {feat_size / median:.1f}x the "
-            f"median. That cut is the moment the trader's confidence broke."
+            f"median."
         )
 
     # Priority 2: time since prior stop
@@ -291,9 +290,7 @@ def _behavioral_note(
                 else:
                     where = f"{int(delta_min / (60 * 24))} days after"
                 return (
-                    f"The trader re-entered {where} their previous stop. "
-                    f"That re-entry is the moment the trader refused to "
-                    f"accept the stop."
+                    f"The trader re-entered {where} their previous stop."
                 )
             except Exception:
                 pass
@@ -304,11 +301,10 @@ def _behavioral_note(
         if featured.get("direction") != prior.get("direction"):
             return (
                 f"The trader flipped direction from {prior.get('direction')} "
-                f"to {featured.get('direction')}. That flip is the moment."
+                f"to {featured.get('direction')}."
             )
 
     # Fallback
     return (
-        f"The loss on this trade was ${abs(feat_result):.0f}. "
-        f"The number itself is the moment."
+        f"The loss on this trade was ${abs(feat_result):.0f}."
     )
