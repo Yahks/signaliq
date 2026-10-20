@@ -22,7 +22,7 @@ VOICE & STYLE
 BEAT SHAPE
 1. THE CONFESSION: Start with a failure related to this article's specific FOCUS AREA. Frame it as a quant: 'My sample size was too small' or 'I didn't account for the volatility regime'. 
 2. THE CONTRAST: Contrast the retail trader with the institutions, specifically regarding this FOCUS AREA. (e.g., 'Retail sees a pattern. A quant sees a probability distribution and a sample size.')
-3. THE RULES: Write 3 to 4 specific, hard-earned rules. Ground each rule in the data from the source block. The rules must directly address the FOCUS AREA and the ANGLE.
+3. THE RULES: Write 3 to 4 specific rules, but weave them into a single narrative paragraph. Do NOT use "First," "Second," "Third," or any enumeration. Instead, use transitions that build: "The first lesson was that...", "That insight led to a second constraint:...", "The final piece of the puzzle was..." The paragraph should read like one continuous thought, not a numbered list.
 4. THE PROOF: Use the exact numbers from the source block (the trade log, the account balance, the VIX, the ATR) to prove the rule works.
 5. THE FIX: What is the rule you now follow? You MUST start this paragraph with the exact phrase "I now" or "Now I". (e.g., "I now write down three lines before every trade...").
 6. THE FINAL RULE: At the very end of the text (before the charts), give one final hard-earned rule. It should be a psychological trigger or a strict discipline (e.g., "Write it down, or it doesn't count" or "Never add to a loser"). Do NOT write a list of questions. If the model writes a checklist, the delivery check will fail.
@@ -37,6 +37,7 @@ HARD RULES (The Delivery Check will fail if you break these)
 3. NO CAUSAL LANGUAGE. You are strictly forbidden from using words like "signaled", "suggested", "indicated", or "implied". State what the number is, and state what you did.
 4. NO ENUMERATED LISTS. Do NOT write "First", "Second", "Third", "One", "Two", "Three", "Next", or "Finally". You are writing an essay, not a bulleted list. Use paragraph breaks and transitions.
 5. NO META-COMMENTARY. Do NOT write "If you found this post insightful", "Follow my blog", "In this article", "Let me explain", or "Here is what I learned." Just tell the story.
+6. NO BLOCK-HEADER NAMES IN PROSE. Do NOT write "the DAILY VIEW", "the DISTRIBUTION", "the CORRELATION", or any other uppercase block header from the source block. Describe what the chart shows. Instead of "the DAILY VIEW showed", write "the daily chart showed". Instead of "the DISTRIBUTION showed", write "the 90-day histogram showed". Instead of "the CORRELATION read", write "the 20-day rolling correlation read".
 
 SOURCE BLOCK:
 {source_block}
