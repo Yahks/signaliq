@@ -6,6 +6,7 @@ On subsequent calls, fetches the last 5 days (idempotent upsert
 catches late corrections without re-fetching the full window).
 """
 from __future__ import annotations
+import math
 
 from datetime import date, timedelta
 from typing import Any
@@ -445,6 +446,15 @@ def _forward_return_stats(returns: list[float]) -> dict:
         if r > peak:
             peak = r
         dd = min(dd, r - peak)
+    # t-statistic: mean / (std / sqrt(n)). The test is whether
+    # the mean forward return is significantly different from zero.
+    # |t| > 1.96 means p < 0.05 (two-tailed). Below that, the edge
+    # is not statistically distinguishable from noise.
+    if std > 0 and n >= 2:
+        t_stat = expectancy / (std / math.sqrt(n))
+    else:
+        t_stat = 0.0
+
     return {
         "n": n,
         "wins": len(wins),
@@ -453,6 +463,8 @@ def _forward_return_stats(returns: list[float]) -> dict:
         "expectancy": expectancy,
         "std": std,
         "max_dd": dd,
+        "t_stat": t_stat,
+        "significant": abs(t_stat) > 1.96,
     }
 
 async def build_stock_report(
@@ -696,7 +708,9 @@ async def build_stock_report(
                     f"({s['wins']}W/{s['losses']}L), "
                     f"Expectancy={s['expectancy']:+.2f}%, "
                     f"Std dev={s['std']:.2f}%, "
-                    f"Max drawdown={s['max_dd']:+.2f}%"
+                    f"Max drawdown={s['max_dd']:+.2f}%, "
+                    f"t-stat={s['t_stat']:.2f}, "
+                    f"Significant={'YES' if s['significant'] else 'NO'}"
                 )
             if f10_returns:
                 s = _forward_return_stats(f10_returns)
@@ -707,7 +721,9 @@ async def build_stock_report(
                     f"({s['wins']}W/{s['losses']}L), "
                     f"Expectancy={s['expectancy']:+.2f}%, "
                     f"Std dev={s['std']:.2f}%, "
-                    f"Max drawdown={s['max_dd']:+.2f}%"
+                    f"Max drawdown={s['max_dd']:+.2f}%, "
+                    f"t-stat={s['t_stat']:.2f}, "
+                    f"Significant={'YES' if s['significant'] else 'NO'}"
                 )
             if hits:
                 parts.append(

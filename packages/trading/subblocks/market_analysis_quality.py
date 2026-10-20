@@ -230,7 +230,13 @@ def verify_article(
 
 # ──── EXACT NUMBERS list ────
 
-def build_trade_facts(t: dict[str, Any]) -> str | None:
+def build_trade_facts(
+    t: dict[str, Any],
+    account_balance: float | None = None,
+    vix_current: float | None = None,
+    vix_range: tuple[float, float] | None = None,
+    atr_history: list[float] | None = None,
+) -> str | None:
     """Build the THE TRADE section in trader notation.
 
     Returns None if the trade data is internally inconsistent
@@ -346,6 +352,76 @@ def build_trade_facts(t: dict[str, Any]) -> str | None:
             f"stop distance: {stop_dist} "
             f"({stop_dist / entry * 100:.1f}% of entry)"
         )
+
+    # ── PROFESSIONAL CONTEXT ──
+    # The numbers a quant uses to decide whether the trade was
+    # acceptable risk. The model must quote at least two of these
+    # in the proof section.
+    ctx_lines = []
+    _has_ctx = False
+
+    # Realized risk as % of account.
+    if account_balance and account_balance > 0:
+        risk_dollars = float(stop_dist) * shares
+        risk_pct = risk_dollars / account_balance * 100.0
+        target_pct = 1.00
+        delta = risk_pct - target_pct
+        delta_str = f"+{delta:.2f}" if delta >= 0 else f"{delta:.2f}"
+        ctx_lines.append(
+            f"Realized risk: {risk_pct:.2f}% of account "
+            f"(target {target_pct:.2f}%, delta {delta_str}pp)"
+        )
+        _has_ctx = True
+
+    # Slippage on the stop.
+    if t.get("exit") and t.get("stop"):
+        slip = abs(float(exit_) - float(stop))
+        slip_r = float(slip) / float(stop_dist) if stop_dist else 0.0
+        ctx_lines.append(
+            f"Slippage on stop: {slip:.2f} pts ({slip_r:+.2f}R)"
+        )
+        _has_ctx = True
+
+    # VIX percentile — where the current VIX sits relative to the
+    # 24-hour range. A high percentile means the VIX is near the
+    # top of its recent move.
+    if vix_current and vix_range and len(vix_range) == 2:
+        lo, hi = vix_range
+        if hi > lo:
+            vix_pct = (vix_current - lo) / (hi - lo) * 100.0
+            if vix_pct >= 75:
+                regime = "elevated"
+            elif vix_pct <= 25:
+                regime = "compressed"
+            else:
+                regime = "mid-range"
+            ctx_lines.append(
+                f"VIX percentile (24h range {lo:.2f}-{hi:.2f}): "
+                f"{vix_pct:.0f}th — {regime} regime"
+            )
+            _has_ctx = True
+
+    # ATR percentile — where the current ATR sits relative to
+    # the last 60 days of ATRs. A high percentile means volatility
+    # is expanded, which changes the sizing math.
+    if atr and atr_history and len(atr_history) >= 10:
+        below = sum(1 for a in atr_history if a <= float(atr))
+        atr_pct = below / len(atr_history) * 100.0
+        if atr_pct >= 75:
+            regime = "expanded"
+        elif atr_pct <= 25:
+            regime = "compressed"
+        else:
+            regime = "mid-range"
+        ctx_lines.append(
+            f"ATR percentile (60-day): {atr_pct:.0f}th — {regime} regime"
+        )
+        _has_ctx = True
+
+    if _has_ctx:
+        lines.append("")
+        lines.append("--- PROFESSIONAL CONTEXT ---")
+        lines.extend(ctx_lines)
 
     lines.append("")
     lines.append(

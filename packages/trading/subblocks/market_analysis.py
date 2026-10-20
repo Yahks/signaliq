@@ -7,6 +7,7 @@ No Yahoo fetch. No computed numbers. The trader's observations are
 the source.
 """
 from __future__ import annotations
+import re
 
 from typing import Any
 
@@ -690,7 +691,32 @@ async def generate(
     # No hesitation_note (it's a template). No setup_detail
     # (the bar dump). No percent_of_equity when None. No
     # timeframe (conflicts with the hold duration).
-    _trade_facts = build_trade_facts(featured_trade)
+    # Pull account balance + VIX range from the data we already have.
+    _balance = None
+    try:
+        _balance = float(account_data.get("current_balance") or 0) or None
+    except Exception:
+        pass
+
+    _vix_current = None
+    _vix_range = None
+    try:
+        if events_summary:
+            _close_m = re.search(r"closed at ([\d.]+)", events_summary)
+            _range_m = re.search(r"range ([\d.]+)-([\d.]+)", events_summary)
+            if _close_m:
+                _vix_current = float(_close_m.group(1))
+            if _range_m:
+                _vix_range = (float(_range_m.group(1)), float(_range_m.group(2)))
+    except Exception:
+        pass
+
+    _trade_facts = build_trade_facts(
+        featured_trade,
+        account_balance=_balance,
+        vix_current=_vix_current,
+        vix_range=_vix_range,
+    )
     if _trade_facts is None:
         log.warning(
             "market_analysis.trade_inconsistent",
