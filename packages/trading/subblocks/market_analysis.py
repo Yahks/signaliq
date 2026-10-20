@@ -373,11 +373,24 @@ async def generate(
         log.warning("market_analysis.no_adjustments", org_id=org_id[:8])
         return {"status": "no_market_conditions", "slug": subblock["slug"]}
 
-    # 2. Rotation picks. Reset trade pool if every trade has
+    # 2. Pick the template first. This determines which focus/angle
+    # lists we rotate from (trade vs setup) and which source-block
+    # shape we build later.
+    _cnt_row = (await session.execute(sql_text("""
+        SELECT COUNT(*) FROM trading_posts
+        WHERE subblock_id = :sid AND org_id = :oid
+          AND deleted_at IS NULL
+    """), {"sid": subblock["id"], "oid": org_id})).first()
+    article_count_for_template = int(_cnt_row[0] or 0) if _cnt_row else 0
+    template, template_id = pick_template(article_count_for_template)
+
+    # 3. Rotation picks. Reset trade pool if every trade has
     # been used (or the reset window has passed).
 
     recent_combos = await _recent_combinations(session, org_id=org_id)
-    window_days, angle, focus = pick_combination(recent_combos)
+    window_days, angle, focus = pick_combination(
+        recent_combos, template_id=template_id,
+    )
 
     # 2b. Pick stock + timeframe, retry across stocks if the
     # current pick has no valid trades. Some symbols (e.g.
@@ -756,15 +769,6 @@ async def generate(
         _source_parts.append(
             "--- MY ACCOUNT ---\n" + account_block
         )
-
-    # ── Template selection (moved up so we can branch on template_id)
-    _cnt_row = (await session.execute(sql_text("""
-        SELECT COUNT(*) FROM trading_posts
-        WHERE subblock_id = :sid AND org_id = :oid
-          AND deleted_at IS NULL
-    """), {"sid": subblock["id"], "oid": org_id})).first()
-    article_count_for_template = int(_cnt_row[0] or 0) if _cnt_row else 0
-    template, template_id = pick_template(article_count_for_template)
 
     source_block = "\n\n".join(_source_parts)
     if events_summary:

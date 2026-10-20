@@ -21,9 +21,56 @@ from packages.core.logging import get_logger
 log = get_logger(__name__)
 
 WINDOWS = [5, 20, 60, 90]
-ANGLES = ["divergence", "pattern", "outlier", "confirmation", "miss"]
-FOCUSES = ["readings", "segments", "vix", "asset_classes", "movers"]
 _RECENT_LOOKBACK = 20
+
+# Trade template: the article is about a specific trade.
+# Focuses name what the trade ran into. Angles name how the
+# trader responded.
+TRADE_FOCUSES = [
+    "segments",        # the trade failed/worked because the segment moved
+    "movers",          # the trade was chasing or avoiding a mover
+    "asset_classes",   # cross-asset confirmation was missing or present
+    "correlation",     # the stock decoupled from the market
+    "vix",             # the volatility regime shifted
+    "liquidity",       # the spread widened or stayed thin
+    "structure",       # support/resistance broke or held
+    "momentum",        # the momentum faded or accelerated
+]
+TRADE_ANGLES = [
+    "confirmation",    # the signals agreed, and I acted
+    "divergence",      # the signals disagreed, and I ignored it
+    "trap",            # the setup looked right but failed
+    "breakout",        # the setup worked
+    "fade",            # the momentum reversed
+    "miss",            # I saw the setup but didn't take it
+    "catalyst",        # a news event drove the outcome
+]
+
+# Setup template: the article is about the statistics of a
+# pattern. No trade. Focuses name a statistical property.
+# Angles name a research question.
+SETUP_FOCUSES = [
+    "percentile_band",   # how the setup behaves at different percentiles
+    "sample_size",       # is N large enough to trust?
+    "significance",      # does the t-stat clear 1.96?
+    "forward_return",    # the distribution of 5d and 10d forward returns
+    "regime_condition",  # the setup in different VIX regimes
+    "cross_asset",       # the setup when correlation flips
+    "skew",              # symmetric or biased?
+    "drawdown",          # max adverse excursion
+]
+SETUP_ANGLES = [
+    "saturation",      # the setup appears too often; is the edge degrading?
+    "rarity",          # the setup is rare; is the sample too small?
+    "regime_flip",     # the setup worked in one regime, broke in another
+    "decay",           # the forward returns have weakened over time
+    "clustering",      # the setup appears in bursts, not uniformly
+]
+
+# Backward-compatible aliases for code that still imports
+# the flat lists.
+FOCUSES = TRADE_FOCUSES
+ANGLES = TRADE_ANGLES
 
 
 def pick_history_window() -> int:
@@ -52,21 +99,41 @@ async def _recent_combinations(
     return {(r["window_days"], r["angle"], r["focus"]) for r in rows}
 
 
-def pick_combination(recent: set[tuple]) -> tuple[int, str, str]:
+def pick_combination(
+    recent: set[tuple],
+    template_id: str = "trade",
+) -> tuple[int, str, str]:
     """Pick (window, angle, focus) not in `recent`.
 
+    Template-aware. Trade articles pick from the trade lists
+    (segment/vix/movers focuses; confirmation/trap/miss angles).
+    Setup articles pick from the setup lists (sample_size/
+    significance/regime_condition focuses; rarity/decay/
+    regime_flip angles).
+
     Tries random draws for a bounded number of attempts. If every
-    combination is in the recent set (should not happen with the
-    pool sizes we have), returns the last drawn anyway.
+    combination is in the recent set, returns the last drawn
+    anyway.
     """
+    if template_id == "setup":
+        focuses = SETUP_FOCUSES
+        angles = SETUP_ANGLES
+    else:
+        focuses = TRADE_FOCUSES
+        angles = TRADE_ANGLES
+
     for _ in range(30):
-        w = pick_history_window()
-        a = pick_angle()
-        f = pick_focus()
+        w = random.choice(WINDOWS)
+        a = random.choice(angles)
+        f = random.choice(focuses)
         if (w, a, f) not in recent:
             return w, a, f
-    # Fallback — should not happen.
-    return pick_history_window(), pick_angle(), pick_focus()
+    # Fallback — should not happen with the pool sizes we have.
+    return (
+        random.choice(WINDOWS),
+        random.choice(angles),
+        random.choice(focuses),
+    )
 
 
 async def pick_unused_trade(

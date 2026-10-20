@@ -235,8 +235,14 @@ async def detect_pattern(
         if abs(float(t.get("result") or 0)) < 10
     ]
 
-    # Rotation index — the count of prior articles on this org, modulo 4.
-    # Rotation: worst loss -> biggest win -> best scratch -> second-worst loss.
+    # Rotation index — the count of prior articles on this org, modulo 6.
+    # Balanced outcomes so the reader doesn't see mostly stop-losses.
+    #   0: worst loss       (confession)
+    #   1: biggest win      (what worked)
+    #   2: best scratch     (near-miss)
+    #   3: median trade     (whatever the middle result was)
+    #   4: second-best win  (a smaller win)
+    #   5: second-worst loss (a different flavor of loss)
     from sqlalchemy import text as _sql
     _count_row = (await session.execute(_sql(
         "SELECT COUNT(*) FROM trading_posts "
@@ -244,30 +250,46 @@ async def detect_pattern(
         "AND subblock_id = (SELECT id FROM trading_subblocks "
         "WHERE slug = 'market_analysis' LIMIT 1)"
     ), {"oid": org_id})).scalar() or 0
-    rotation = _count_row % 4
+    rotation = _count_row % 6
 
     featured = None
     if rotation == 0 and losses:
-        # Worst loss — the original behavior.
         featured = min(losses, key=lambda t: float(t.get("result") or 0))
     elif rotation == 1 and wins:
-        # Biggest win — teaches what worked.
         featured = max(wins, key=lambda t: float(t.get("result") or 0))
     elif rotation == 2 and scratches:
-        # Best scratch — teaches a near-miss lesson.
         featured = max(scratches, key=lambda t: float(t.get("result") or 0))
-    elif rotation == 3 and len(losses) >= 2:
-        # Second-worst loss — a different flavor of loss.
-        sorted_losses = sorted(
-            losses, key=lambda t: float(t.get("result") or 0)
-        )
-        featured = sorted_losses[1]
-
-    # Fallback: if the rotation lands on an empty bucket, use worst loss.
-    if featured is None:
-        featured = min(
+    elif rotation == 3 and in_pattern_trades:
+        # Median trade — sort by result, take the middle.
+        _sorted_all = sorted(
             in_pattern_trades, key=lambda t: float(t.get("result") or 0)
         )
+        featured = _sorted_all[len(_sorted_all) // 2]
+    elif rotation == 4 and len(wins) >= 2:
+        # Second-biggest win.
+        _sorted_wins = sorted(
+            wins, key=lambda t: float(t.get("result") or 0), reverse=True
+        )
+        featured = _sorted_wins[1]
+    elif rotation == 5 and len(losses) >= 2:
+        # Second-worst loss.
+        _sorted_losses = sorted(
+            losses, key=lambda t: float(t.get("result") or 0)
+        )
+        featured = _sorted_losses[1]
+
+    # Fallback: if the rotation lands on an empty bucket, use the
+    # median trade (or worst loss if only one trade).
+    if featured is None:
+        if in_pattern_trades:
+            _sorted_all = sorted(
+                in_pattern_trades, key=lambda t: float(t.get("result") or 0)
+            )
+            featured = _sorted_all[len(_sorted_all) // 2]
+        else:
+            featured = min(
+                in_pattern_trades, key=lambda t: float(t.get("result") or 0)
+            )
 
     # Behavioral note - computed from the featured trade vs. the pool.
     behavior = _behavioral_note(featured, trades, best)
