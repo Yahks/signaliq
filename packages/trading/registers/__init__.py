@@ -639,7 +639,8 @@ COMMON_PROHIBITIONS: list[tuple[str, str]] = [
      r"|the batch of \w+"
      r"|across this batch|in this batch"
      r"|looking at (?:this|the|these|those|the last|the next)"
-     r"|this (?:piece|sample|post|column))\b"),
+     r"|this (?:piece|post|column)"
+     r"|this sample of \w+)\b"),
     ("process narration",
      r"(?i)\b(?:the (?:source|instruction|register|prompt) (?:forbids|requires|"
      r"states|says)"
@@ -1117,12 +1118,145 @@ def _check_has_fix(text: str) -> str | None:
     trader now makes based on the trade."""
     import re
     patterns = [
-        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will|The fix is|My fix is)\b",
+        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will|The fix is|My fix is|The conditional rule|The rule is|My rule|The lesson is|I only take|I skip|I limit|I exit|I enter only|If .{0,60} then I)\b",
     ]
     for p in patterns:
         if re.search(p, text, re.IGNORECASE):
             return None
     return "fix_missing"
+
+
+def _check_fabrication_hedge(text: str) -> str | None:
+    """Flag articles where the model hedges on a number it invented.
+    Phrases like "(not in the source)", "(approximate)", "(inferred)",
+    "(estimated)" are admissions that the model is fabricating."""
+    import re
+    patterns = [
+        # Only the parenthetical admissions. Legitimate prose
+        # uses of "approximately" (e.g. "saving approximately
+        # $1,200") are not fabrication.
+        r"\(not in the source\)",
+        r"\(approximate(?:ly)?\)",
+        r"\(inferred\)",
+        r"\(implied by the pattern\)",
+        r"\(estimated\)",
+        r"\bnot in the source\b",
+        r"\binferred from the pattern\b",
+        r"\bimplied by the chart\b",
+    ]
+    for p in patterns:
+        if re.search(p, text, re.IGNORECASE):
+            return "fabrication_hedge"
+    return None
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Per-template market_analysis gates.
+#
+# The four templates (trade, setup, dialogue, process) each have
+# different shapes and different failure modes. The old flat gate
+# checked every template against every rule, which produced false
+# positives and let real failures through.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _check_no_checklist(text: str) -> str | None:
+    """Flag articles that end with a checklist of questions."""
+    import re
+    tail = text[-800:] if len(text) > 800 else text
+    if tail.count("?") >= 2:
+        return "checklist_at_end"
+    return None
+
+
+def _check_no_process_narration(text: str) -> str | None:
+    """Flag articles that narrate the process instead of doing it."""
+    import re
+    patterns = [
+        r"\bthe (?:first|second|third|next|final|last) step is\b",
+        r"\bI apply the filter\b",
+        r"\bthe initial filter I apply\b",
+        r"\bmy first step is\b",
+        r"\bnext I (?:look|check|apply|examine)\b",
+    ]
+    for p_ in patterns:
+        if re.search(p_, text, re.IGNORECASE):
+            return "process_narration"
+    return None
+
+
+def _check_references_trade_log(text: str) -> str | None:
+    """Process articles must reference at least one aggregate statistic."""
+    import re
+    patterns = [
+        r"\bwin rate\b",
+        r"\bexpectancy\b",
+        r"\bavg(?:erage)? win\b",
+        r"\bavg(?:erage)? loss\b",
+        r"\bslippage\b",
+        r"\bdrawdown\b",
+        r"\bevent-day penalty\b",
+        r"\bover \d+ trades\b",
+    ]
+    for p_ in patterns:
+        if re.search(p_, text, re.IGNORECASE):
+            return None
+    return "trade_log_not_referenced"
+
+
+def _check_ma_trade(text: str, template_id: str | None) -> list[str]:
+    if template_id != "trade":
+        return []
+    v = [
+        _check_precise_times(text),
+        _check_has_fix(text),
+        _check_fabrication_hedge(text),
+        _check_no_checklist(text),
+        _check_chart_header(text),
+    ]
+    return [x for x in v if x]
+
+
+def _check_ma_setup(text: str, template_id: str | None) -> list[str]:
+    if template_id != "setup":
+        return []
+    v = [
+        _check_has_fix(text),
+        _check_fabrication_hedge(text),
+        _check_no_checklist(text),
+        _check_no_process_narration(text),
+        _check_chart_header(text),
+    ]
+    return [x for x in v if x]
+
+
+def _check_ma_dialogue(text: str, template_id: str | None) -> list[str]:
+    if template_id != "dialogue":
+        return []
+    v = [
+        _check_precise_times(text),
+        _check_has_fix(text),
+        _check_fabrication_hedge(text),
+        _check_no_checklist(text),
+        _check_no_process_narration(text),
+        _check_chart_header(text),
+    ]
+    return [x for x in v if x]
+
+
+def _check_ma_process(text: str, template_id: str | None) -> list[str]:
+    if template_id != "process":
+        return []
+    v = [
+        _check_has_fix(text),
+        _check_fabrication_hedge(text),
+        _check_no_checklist(text),
+        _check_no_process_narration(text),
+        _check_references_trade_log(text),
+    ]
+    return [x for x in v if x]
 
 
 def delivery_check(
@@ -1154,21 +1288,12 @@ def delivery_check(
         + _check_specificity(text, register)
         + _check_reader_voice(text, register)
     )
-    # market_analysis requires a clock-time narrative and a
-    # stated fix. Both are content requirements, not beats.
+    # market_analysis has four templates. Each has its own gate.
     if register == "market_analysis":
-        if not _skip_trade_checks:
-            _v = _check_precise_times(text)
-        else:
-            _v = None
-        if _v:
-            violations.append(_v)
-        _v = _check_has_fix(text)
-        if _v:
-            violations.append(_v)
-        _v = _check_chart_header(text)
-        if _v:
-            violations.append(_v)
+        violations += _check_ma_trade(text, template_id)
+        violations += _check_ma_setup(text, template_id)
+        violations += _check_ma_dialogue(text, template_id)
+        violations += _check_ma_process(text, template_id)
     if violations:
         raise DeliveryCheckError(violations)
 

@@ -294,6 +294,20 @@ async def detect_pattern(
     # Behavioral note - computed from the featured trade vs. the pool.
     behavior = _behavioral_note(featured, trades, best)
 
+    # Find a comparison trade. If the featured trade is a loss,
+    # find the best win in the same bucket. If the featured trade
+    # is a win, find the worst loss in the same bucket.
+    comparison = None
+    feat_result = float(featured.get("result") or 0)
+    if feat_result < 0 and wins:
+        comparison = max(wins, key=lambda t: float(t.get("result") or 0))
+    elif feat_result > 0 and losses:
+        comparison = min(losses, key=lambda t: float(t.get("result") or 0))
+    elif feat_result == 0:
+        # Scratch — compare against the best win if there is one.
+        if wins:
+            comparison = max(wins, key=lambda t: float(t.get("result") or 0))
+
     return {
         "name": best["name"],
         "n_in": best["n_in"],
@@ -305,6 +319,7 @@ async def detect_pattern(
         "gap": best["gap"],
         "median_size": best.get("median_size"),
         "featured_trade": featured,
+        "comparison_trade": comparison,
         "behavioral_note": behavior,
     }
 

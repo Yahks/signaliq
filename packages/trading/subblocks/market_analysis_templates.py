@@ -1,131 +1,206 @@
-"""Template for market_analysis: the survival guide."""
+"""Templates for market_analysis.
+
+Three templates rotate:
+  _TEMPLATE_TRADE    — post-mortem of a specific trade
+  _TEMPLATE_SETUP    — statistical analysis of a setup (no trade)
+  _TEMPLATE_DIALOGUE — live case study of a setup vs its own history
+"""
 
 import random
 
 
-_TEMPLATE_TRADE = """You are writing a survival guide for quantitative traders.
+# ─────────────────────────────────────────────────────────────────────
+# Shared preamble for all three templates
+# ─────────────────────────────────────────────────────────────────────
+_PREAMBLE = """
+CRITICAL RULE #1 — CHART PLACEMENT. Every time you describe what a chart shows, you MUST emit the corresponding tag ON ITS OWN LINE, with a blank line before and after. This is mandatory.
 
-KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**. Do not write generic trading advice. Every rule must be about how to handle {focus}.
+Available tags:
+[CHART: daily]          — for the daily/primary price chart
+[CHART: distribution]   — for the 90-day return histogram
+[CHART: setup]          — for the setup history
+[CHART: returns]        — for the returns by window
+[CHART: correlation]    — for the rolling correlation
 
-You have been given two sets of reports: 
-1. THE MARKET CONTEXT (the VIX, the asset class moves, the broad tape).
-2. THE STOCK REPORT (the specific trade you executed and its chart).
-You must connect them. Do not invent VIX numbers. Use the numbers in the MARKET CONTEXT block. Do not invent stock prices. Use the numbers in the STOCK REPORT block.
+Example of CORRECT placement:
+  The daily chart shows a grind from 340 to 351 over 40 bars, then a 2% gap up.
+  [CHART: daily]
+  The 90-day histogram has 48 up days vs 42 down, with a fat left tail.
+  [CHART: distribution]
 
-Your job is to write a professional quant essay that distills statistically grounded rules from your experience. You are not just telling a story about one trade; you are teaching a lesson. 
+Example of WRONG placement (fails delivery check):
+  ... all paragraphs ...
+  ## Charts
+  ![daily](...)
+  ![distribution](...)
 
-VOICE & STYLE
-- Write in first person. ("I measured", "My model", "I paid for this in real money").
-- Sound like a quant talking to another quant. Direct, humble, and brutally honest. Use terms like 'forward returns', 'sample size', 'overlay', and 'risk-adjusted'.
-- Do NOT write "the trader". Write "I".
+CRITICAL RULE #2 — NO CHECKLIST. Do NOT end the article with a list of questions like "Can I confirm...", "Do I verify...", "Have I checked...". The article ends with a RULE, not a checklist. Any "Do I", "Can I", or "Have I" question at the end fails the delivery check.
 
-BEAT SHAPE
-1. THE CONFESSION: Start with a failure related to this article's specific FOCUS AREA. Frame it as a quant: 'My sample size was too small' or 'I didn't account for the volatility regime'. 
-2. THE CONTRAST: Contrast the retail view with the quant view, specifically regarding this FOCUS AREA. State what the retail trader sees and what you, as a quant, actually look at instead.
-3. THE RULES: Write 3 to 4 specific rules, woven into one narrative paragraph. Each rule MUST be a conditional statement: "If [condition from the source block], then I [action]." The condition must name a number, a threshold, a percentile, or a statistic. Do NOT write platitudes like "Never trust a pattern" or "Always manage risk." A rule looks like this: "If the 5-day forward win rate is under 50% and the sample size is below 30, I skip the setup." Do NOT use enumeration (First, Second, Third). Do NOT use stock transition phrases. Write it as one continuous thought.
-4. THE PROOF: Use the exact numbers from the source block (the trade log, the account balance, the VIX, the ATR) to prove the rule works.
-5. THE FIX: What is the rule you now follow? Introduce it in your own words, as if you were explaining the change to another trader.
-6. THE FINAL RULE: At the very end of the text (before the charts), give one final hard-earned rule. It should be a psychological trigger or a strict discipline (e.g., "Write it down, or it doesn't count" or "Never add to a loser"). Do NOT write a list of questions. If the model writes a checklist, the delivery check will fail.
+CRITICAL RULE #3 — NO PROCESS NARRATION. Do NOT write "the first step is...", "I apply the filter...", "next I look at...". Just do the analysis. Say "the percentile is at 0th" not "the first filter I apply is the percentile."
 
-HARD RULES (The Delivery Check will fail if you break these)
-1. EVERY NUMBER MUST COME FROM THE SOURCE BLOCK. Do not invent a price, a date, an ATR value, or a stop level. 
-   - If you need a VIX number or a market segment return, pull it from THE MARKET CONTEXT block.
-   - If you need an ATR, a stock price, or a chart pattern, pull it from THE STOCK REPORT block.
-   - If a number is not in either block, do not write it.
-   - DO NOT INVENT DATES FOR CHART HIGHS AND LOWS. If the source block gives you a price high (e.g. 301.76) but no date, just write the price. Do NOT invent a date like "April 20".
-2. YOU MUST STATE THE EXACT TIMES. In the proof section, you must explicitly write the exact timestamp of when you traded and when you exited. For example: "At 14:46 UTC on October 16, I entered..." and "I exited at 16:26 UTC." Do not say "in the morning".
-3. NO CAUSAL LANGUAGE. You are strictly forbidden from using words like "signaled", "suggested", "indicated", or "implied". State what the number is, and state what you did.
-4. NO ENUMERATED LISTS. Do NOT write "First", "Second", "Third", "One", "Two", "Three", "Next", or "Finally". You are writing an essay, not a bulleted list. Use paragraph breaks and transitions.
-5. NO META-COMMENTARY. Do NOT write "If you found this post insightful", "Follow my blog", "In this article", "Let me explain", or "Here is what I learned." Just tell the story.
-6. NO BLOCK-HEADER NAMES IN PROSE. Do NOT write "the DAILY VIEW", "the DISTRIBUTION", "the CORRELATION", or any other uppercase block header from the source block. Describe what the chart shows. Instead of "the DAILY VIEW showed", write "the daily chart showed". Instead of "the DISTRIBUTION showed", write "the 90-day histogram showed". Instead of "the CORRELATION read", write "the 20-day rolling correlation read".
-
-SOURCE BLOCK:
-{source_block}
-
-Write the article now. Aim for 850 to 1230 words."""
+CRITICAL RULE #4 — LENGTH. Write at least 850 words. Each beat below specifies a MINIMUM word count. Total must reach 850 words. Articles under 630 words are rejected.
+"""
 
 
-_TEMPLATE_SETUP = """You are writing a setup analysis for quantitative traders.
+# ─────────────────────────────────────────────────────────────────────
+# TEMPLATE 1: TRADE (post-mortem of a specific trade)
+# ─────────────────────────────────────────────────────────────────────
+_TEMPLATE_TRADE = """You are writing a post-mortem of a specific trade for quantitative traders.
 
-You have been given a stock report with a setup history, a distribution histogram, and a broader market context. There is no featured trade. Your job is to write about the SETUP ITSELF — what the chart is offering today, what the history says about it, and what you decided to do.
+You have been given a stock report, a featured trade with its chart, and a comparison trade.
 
-Do not invent a trade. Do not talk about entries, stops, or exits. The subject is the setup.
+KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**.
 
-KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**. Every rule must be about how to read {focus} through {angle}.
+VOICE
+- First person. ("I entered", "I watched", "The rule I now follow").
+- Quant-to-quant. Sample size, forward returns, t-statistics, expectancy.
+""" + _PREAMBLE + """
 
-VOICE & STYLE
-- Write in first person. ("I measured", "My model", "I now require").
-- Sound like a quant talking to another quant. Use terms like sample size, forward returns, t-statistic, expectancy, significance.
-- Do NOT write a retail survival guide. Do NOT write generic advice.
+BEAT SHAPE (with minimum word counts)
+1. THE CONFESSION (150 words minimum): The trade, what it cost or made. Entry, stop, exit, result.
+2. THE CONTRAST (100 words minimum): Retail view vs. quant view.
+3. THE RULES (200 words minimum): 3–4 conditional rules. Each rule = "If X, then I Y." Ground each in the source numbers.
+4. THE PROOF (150 words minimum): Exact numbers, exact entry/exit timestamps.
+5. THE FIX (100 words minimum): The change to my process. Start with a first-person commitment.
+6. THE COMPARISON (150 words minimum): Featured trade vs. comparison trade. What was different?
+7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
 
-BEAT SHAPE
-1. THE SETUP: What the chart shows today. State the current close, the percentile, the band. Be specific.
-2. THE STATISTICS: What the setup history says. Quote the N, the win rate, the expectancy, the t-statistic, the significance verdict. Do NOT invent a sample. If the source block gives you "N=3, win rate=33%, t-stat=-1.13, significant=NO", quote those exact numbers.
-3. THE DECISION: What I did about it. Did I take the setup, skip it, or wait for confirmation? State the reasoning in terms of the statistics.
-4. THE OUTCOME: What the price did over the following days. Quote the forward returns from the setup history (e.g., "the next 5 days were -2.15%, -1.43%, and -2.26%").
-5. THE LESSON: What the setup's outcome taught me, in statistical terms. Did the edge validate? Did the sample prove too small? Every lesson must resolve into a conditional rule: "If [specific condition from the setup history], then I [specific action]." Do NOT write platitudes. A lesson is not "be patient." A lesson is "If the t-stat is under 1.96, the edge is noise, and I skip it."
-6. THE FIX: What I now do when I see this setup. Introduce the change in your own words, as if you were explaining it to another trader.
-7. THE FINAL RULE: One sentence. A hard-won discipline. Not a question.
-
-HARD RULES (The Delivery Check will fail if you break these)
-1. EVERY NUMBER MUST COME FROM THE SOURCE BLOCK. Do not invent a price, a date, an ATR, a percentile, or a forward return.
-2. NO BLOCK-HEADER NAMES IN PROSE. Do NOT write "the SETUP HISTORY" or "the DISTRIBUTION". Describe what the chart shows.
-3. NO ENUMERATED LISTS. No "First," "Second," "Third," "Next," "Finally."
-4. NO CAUSAL LANGUAGE. No "signaled," "suggested," "indicated," "implied."
-5. NO META-COMMENTARY. No "in this article," "let me explain," "stay tuned."
-6. NO QUESTIONS AT THE END. The final beat is a rule, not a checklist.
+HARD RULES
+1. EVERY NUMBER from the source block. No invented prices, dates, ATRs, or stops.
+2. MUST STATE ENTRY AND EXIT TIMES (e.g., "14:46 UTC" and "17:16 UTC").
+3. NO enumerated lists.
+4. NO causal language ("signaled", "suggested").
+5. NO meta-commentary.
+6. NO block-header names in prose (say "the daily chart", not "THE DAILY VIEW").
 
 SOURCE BLOCK:
 {source_block}
 
-Write the article now. Aim for 850 to 1230 words."""
+Write the article now. Aim for 850 to 1230 words. Count as you go."""
 
 
+# ─────────────────────────────────────────────────────────────────────
+# TEMPLATE 2: SETUP (statistical analysis, no trade)
+# ─────────────────────────────────────────────────────────────────────
+_TEMPLATE_SETUP = """You are writing a statistical analysis of a chart setup for quantitative traders.
+
+There is no featured trade. The subject is the setup.
+
+KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**.
+
+VOICE
+- First person. ("I measured", "My model", "The rule I now follow").
+- Quant-to-quant. Sample size, forward returns, t-statistics.
+""" + _PREAMBLE + """
+
+BEAT SHAPE (with minimum word counts)
+1. THE SETUP (120 words minimum): Chart state — close, percentile, band.
+2. THE STATISTICS (180 words minimum): N, win rate, expectancy, t-statistic, significance. Quote exact numbers.
+3. THE DECISION (100 words minimum): Take, skip, or wait. State the reasoning.
+4. THE OUTCOME (100 words minimum): Forward returns from the setup history.
+5. THE LESSON (150 words minimum): What the outcome taught me, in statistical terms. Resolve into a conditional rule.
+6. THE FIX (100 words minimum): The change to my process.
+7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+
+HARD RULES
+1. EVERY NUMBER from the source block.
+2. NO enumerated lists.
+3. NO causal language.
+4. NO meta-commentary.
+5. NO block-header names in prose.
+
+SOURCE BLOCK:
+{source_block}
+
+Write the article now. Aim for 850 to 1230 words. Count as you go."""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TEMPLATE 3: DIALOGUE (live case study)
+# ─────────────────────────────────────────────────────────────────────
 _TEMPLATE_DIALOGUE = """You are writing a live case study of a chart setup for quantitative traders.
 
-You have been given a stock report with a setup history, a distribution, and a broader market context. There may or may not be a featured trade. Your job is to analyze the SETUP AGAINST ITS OWN HISTORICAL DATA in real time, as if you were sitting at the screen right now, deciding whether to act.
+You are analyzing a setup the market is offering and deciding what to do.
 
-You are not defending a trade you already took. You are analyzing a setup the market is offering and deciding what to do about it.
+KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**.
 
-KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**. Every step of the analysis must be about {focus}.
+VOICE
+- First person. ("I look at the chart", "I pull the setup history").
+- Address the reader. "If you look carefully at the chart, you'll see..."
+""" + _PREAMBLE + """
 
-VOICE & STYLE
-- Write in first person. ("I look at the chart", "I pull the setup history", "I check the distribution").
-- Address the reader directly. Use phrases like "If you look carefully at the chart, you'll see...", "Here is the question I always ask first...", "You might think X, but look at Y."
-- Sound like a quant walking another quant through a live analysis. Show your reasoning step by step. Do not skip to the answer.
+BEAT SHAPE (with minimum word counts)
+1. THE STAKE (100 words minimum): The decision you're trying to make. Frame as tension. Do NOT open with "If I stare..." or "If you look carefully...".
+2. THE FIRST QUESTION (100 words minimum): The first question a careful quant asks.
+3. THE EVIDENCE (150 words minimum): Setup history. N, win rate, expectancy, t-statistic, significance.
+4. THE SKEPTICAL LAYER (120 words minimum): "But what if the sample is too small?" Check VIX, correlation, segment.
+5. THE DECISION (100 words minimum): Take, skip, or wait. If trade, state entry and stop.
+6. THE COMPARISON (120 words minimum): Featured trade vs. comparison trade.
+7. THE OUTCOME (100 words minimum): What happened. Entry, exit, result. Or forward returns.
+8. THE LESSON (100 words minimum): The conditional rule that emerged.
+9. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
 
-BEAT SHAPE
-1. THE OBSERVATION: What the chart is showing right now. "If you look carefully at the chart, you'll see..." State the current close, the percentile, the band.
-2. THE FIRST QUESTION: The first question a careful quant asks about this setup. "You might think this is a buy signal. But the first thing I check is..."
-3. THE EVIDENCE: The setup history. Pull the N, the win rate, the expectancy, the t-stat, the significance verdict. State the numbers exactly.
-4. THE SKEPTICAL LAYER: The second question. "But what if the sample is too small? What if the regime is different?" Check the VIX, the correlation, the segment context. See whether the setup holds up.
-5. THE DECISION: What I decided to do — take the setup, skip it, or wait. State the reasoning. If you took a trade, state the entry and stop. If you skipped, state why.
-6. THE OUTCOME (if a trade exists): What happened. Quote the entry, exit, result. If no trade, quote what the market did after the setup appeared (from the forward returns in the setup history).
-7. THE LESSON: What the case study taught me, in conditional rule form. "If [specific condition], then I [specific action]."
-8. THE FINAL RULE: One sentence. A hard-won discipline.
-
-HARD RULES (The Delivery Check will fail if you break these)
-1. EVERY NUMBER MUST COME FROM THE SOURCE BLOCK. Do not invent a price, a date, an ATR, a percentile, a forward return, or a win rate.
-2. YOU MUST STATE THE EXACT TIMES IF YOU TOOK A TRADE. If there is no trade, do not mention times.
-3. NO ENUMERATED LISTS. No "First," "Second," "Third," "Next," "Finally."
-4. NO CAUSAL LANGUAGE. No "signaled," "suggested," "indicated," "implied."
-5. NO BLOCK-HEADER NAMES IN PROSE. Describe what the chart shows.
-6. NO INVENTED DIALOGUE. Do not put any character in the article other than yourself. You are thinking out loud, not talking to a character.
+HARD RULES
+1. EVERY NUMBER from the source block.
+2. IF YOU TOOK A TRADE: MUST STATE ENTRY AND EXIT TIMES (e.g., "14:46 UTC", "17:16 UTC").
+3. NO enumerated lists.
+4. NO causal language.
+5. NO meta-commentary.
+6. NO block-header names in prose.
+7. NO invented dialogue. You are thinking out loud.
 
 SOURCE BLOCK:
 {source_block}
 
-Write the article now. Aim for 850 to 1230 words."""
+Write the article now. Aim for 850 to 1230 words. Count as you go."""
 
 
-TEMPLATES = [_TEMPLATE_TRADE, _TEMPLATE_SETUP, _TEMPLATE_DIALOGUE]
-TEMPLATE_IDS = ["trade", "setup", "dialogue"]
+# ─────────────────────────────────────────────────────────────────────
+# TEMPLATE 4: PROCESS (trader's behavior across many trades)
+# ─────────────────────────────────────────────────────────────────────
+_TEMPLATE_PROCESS = """You are writing a process analysis for quantitative traders.
+
+You have been given the trader's full trade log (aggregated statistics across all trades) and the account equity curve. There is no featured trade. The subject is the PROCESS — how the trader sizes, manages risk, and responds to regimes.
+
+KEY FOCUS AREA: This article must focus specifically on **{focus}**, viewed through the lens of **{angle}**.
+
+VOICE
+- First person. ("I measured", "My model", "The rule I now follow").
+- Quant-to-quant. Sample size, forward returns, t-statistics, expectancy.
+
+CRITICAL RULE #1 — NO CHECKLIST. Do NOT end the article with a list of questions like "Can I confirm...", "Do I verify...". The article ends with a RULE.
+CRITICAL RULE #2 — NO PROCESS NARRATION. Do NOT write "the first step is..." or "I apply the filter..." — just do the analysis.
+CRITICAL RULE #3 — LENGTH. Write at least 850 words. Each beat below specifies a minimum.
+
+BEAT SHAPE (with minimum word counts)
+1. THE OBSERVATION (120 words minimum): What the aggregated trade log revealed. A specific pattern across the last N trades. e.g., "I measured 900 trades and found that my worst drawdowns correlate with position size above the 90th percentile."
+2. THE STATISTICS (180 words minimum): The numbers. Win rate, expectancy, average win, average loss, max drawdown, position size distribution. Quote the exact statistics from the trade log summary.
+3. THE DIAGNOSIS (150 words minimum): What is causing the pattern. Is it regime-specific? Is it correlated with volatility? Is it a sizing bias?
+4. THE PROOF (150 words minimum): Specific trades or windows that illustrate the pattern. Reference specific dates and results from the trade log.
+5. THE FIX (150 words minimum): The process change. Written as a conditional rule: "If [condition from the trade log], then I [action]." The condition MUST use a number from the trade-log summary (median size, win rate, event-day penalty, slippage, etc.). Do NOT invent a threshold like "30-day realized volatility" if it isn't in the summary. If the summary doesn't name it, don't say it.
+6. THE LESSON (100 words minimum): What the pattern taught me, stated as a general principle.
+7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+
+HARD RULES
+1. EVERY NUMBER from the trade log summary or the account block. Do not invent. Do NOT invent a threshold that isn't in the summary (e.g., "30-day realized volatility above the 70th percentile" — if the summary doesn't have a 30-day volatility or a 70th percentile, do not write it). If you need a number to make a rule conditional, use the numbers in the summary (median size, win rate, event-day penalty, slippage) — not numbers from your imagination.
+2. NO enumerated lists.
+3. NO causal language.
+4. NO meta-commentary.
+5. NO block-header names in prose.
+6. NO invented trades. Only reference trades from the summary.
+
+SOURCE BLOCK:
+{source_block}
+
+Write the article now. Aim for 850 to 1230 words. Count as you go."""
+
+
+TEMPLATES = [_TEMPLATE_TRADE, _TEMPLATE_SETUP, _TEMPLATE_DIALOGUE, _TEMPLATE_PROCESS]
+TEMPLATE_IDS = ["trade", "setup", "dialogue", "process"]
+
 
 def pick_template(article_count: int = 0) -> tuple[str, str]:
-    """Return (template_string, template_id) for this article.
-
-    Alternates: trade, setup, trade, setup, ...
-    """
+    """Return (template_string, template_id) for this article."""
     if not TEMPLATES:
         return "", "unknown"
     idx = article_count % len(TEMPLATES)

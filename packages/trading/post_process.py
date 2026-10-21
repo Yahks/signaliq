@@ -166,11 +166,15 @@ def collapse_checklists(body: str) -> str:
 
 
 def post_process_article(body: str) -> str:
-    """Apply all post-processing steps in order."""
+    """Apply all post-processing steps in order.
+
+    Note: append_checklist was removed. The market_analysis
+    templates no longer include a checklist beat — they end
+    with a conditional rule. Adding a checklist post-hoc
+    contradicts the template and triggers the delivery check.
+    """
     if not body:
         return body
     body = strip_tables(body)
     body = strip_bold_labels(body)
-    body = append_checklist(body)
-    body = collapse_checklists(body)
     return body

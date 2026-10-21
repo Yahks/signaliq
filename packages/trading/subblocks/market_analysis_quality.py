@@ -503,6 +503,18 @@ async def build_charts_block(
     lines.append(f"  Recent high: {hi:.2f} ({recent_dates[hi_i]})")
     lines.append(f"  Recent low: {lo:.2f} ({recent_dates[lo_i]})")
     lines.append(f"  Trajectory: {trend} {change_pct:+.2f}% over the window.")
+    # The actual price array so the model can see the shape.
+    _n_show = min(20, len(recent))
+    _tail_closes = recent[-_n_show:]
+    _tail_dates = recent_dates[-_n_show:]
+    lines.append(
+        f"  Last {_n_show} closes (oldest to newest): "
+        + ", ".join(f"{c:.2f}" for c in _tail_closes)
+    )
+    lines.append(
+        f"  Corresponding dates: "
+        + ", ".join(d[5:] for d in _tail_dates)  # YYYY-MM-DD -> MM-DD
+    )
     lines.append("")
 
     # 2. Distribution (90 days).
@@ -523,6 +535,14 @@ async def build_charts_block(
         lines.append(f"  Up days: {len(ups)}. Down days: {len(downs)}.")
         lines.append(f"  Largest up move: +{max_up:.2f}%. Largest down move: {max_down:.2f}%.")
         lines.append(f"  Skew: {skew}.")
+        # The actual daily-return array (last 20) so the model can
+        # see the distribution's shape, not just its summary.
+        _n_rets = min(20, len(rets))
+        _tail_rets = rets[-_n_rets:]
+        lines.append(
+            f"  Last {_n_rets} daily returns (%): "
+            + ", ".join(f"{r:+.2f}" for r in _tail_rets)
+        )
         lines.append("")
 
     # 3. Returns across windows.
@@ -633,5 +653,223 @@ async def build_charts_block(
             )
             lines.append(f"  Current: {corr:+.2f}.")
             lines.append("")
+
+    return "\n".join(lines)
+
+
+
+async def build_trade_log_summary(
+    session: AsyncSession, *, org_id: str,
+) -> str:
+    """Aggregate statistics across the trader's full trade log.
+
+    Computes:
+      - Win rate, expectancy, average win/loss
+      - Long vs short breakdown
+      - Position size distribution, hold time median
+      - Exit reason breakdown
+      - Slippage statistics (mean, median, max, total cost)
+      - Macro event performance (win rate on event vs non-event days)
+
+    Returns a text block the process template writes from.
+    Returns "" if there are fewer than 10 trades.
+    """
+    from sqlalchemy import text as _sql
+    from statistics import median as _median
+
+    rows = (await session.execute(_sql("""
+        SELECT
+            result,
+            contracts,
+            percent_of_equity,
+            atr_at_entry,
+            entry,
+            stop,
+            exit,
+            entry_slippage,
+            exit_slippage,
+            exit_reason,
+            direction,
+            symbol,
+            traded_at,
+            entry_time
+        FROM trade_log
+        WHERE org_id = :oid AND deleted_at IS NULL
+        ORDER BY traded_at DESC
+    """), {"oid": org_id})).mappings().all()
+
+    if len(rows) < 10:
+        return ""
+
+    results = [float(r["result"]) for r in rows if r["result"] is not None]
+    n = len(results)
+    wins = [r for r in results if r > 0]
+    losses = [r for r in results if r < 0]
+    win_rate = len(wins) / n * 100.0 if n else 0.0
+    expectancy = sum(results) / n if n else 0.0
+    avg_win = sum(wins) / len(wins) if wins else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+
+    sizes = [r["contracts"] for r in rows if r["contracts"] is not None]
+    size_sorted = sorted(sizes)
+    median_size = size_sorted[len(size_sorted) // 2] if size_sorted else 0
+
+    holds_min = []
+    for r in rows:
+        ht = (r.get("hold_time") or "").strip()
+        if not ht:
+            continue
+        try:
+            if "h" in ht:
+                parts = ht.replace("m", "").split("h")
+                h = int(parts[0]) if parts[0] else 0
+                m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                holds_min.append(h * 60 + m)
+            elif ht.endswith("m"):
+                holds_min.append(int(ht[:-1]))
+        except (ValueError, IndexError):
+            continue
+    med_hold = _median(holds_min) if holds_min else 0
+
+    longs = [r for r in rows if r["direction"] == "long"]
+    shorts = [r for r in rows if r["direction"] == "short"]
+    long_wins = [r for r in longs if r["result"] is not None and float(r["result"]) > 0]
+    short_wins = [r for r in shorts if r["result"] is not None and float(r["result"]) > 0]
+    long_wr = len(long_wins) / len(longs) * 100.0 if longs else 0.0
+    short_wr = len(short_wins) / len(shorts) * 100.0 if shorts else 0.0
+
+    exits = {}
+    for r in rows:
+        er = (r.get("exit_reason") or "").strip().lower()
+        if er:
+            exits[er] = exits.get(er, 0) + 1
+
+    entry_slips = [
+        float(r["entry_slippage"])
+        for r in rows if r["entry_slippage"] is not None
+    ]
+    exit_slips = [
+        float(r["exit_slippage"])
+        for r in rows if r["exit_slippage"] is not None
+    ]
+    has_slip = bool(entry_slips) or bool(exit_slips)
+
+    macro_rows = (await session.execute(_sql("""
+        SELECT event_date FROM macro_events
+    """))).mappings().all()
+    macro_dates = {r["event_date"] for r in macro_rows}
+
+    on_event = []
+    off_event = []
+    for r in rows:
+        if r["result"] is None:
+            continue
+        et = r.get("entry_time") or r.get("traded_at")
+        if not et:
+            continue
+        try:
+            d = et.date() if hasattr(et, "date") else et
+        except Exception:
+            continue
+        res = float(r["result"])
+        # On event: trade opened the event day or the day before
+        # (anticipation is the stress).
+        is_event = d in macro_dates
+        if not is_event and hasattr(d, "toordinal"):
+            for md in macro_dates:
+                if hasattr(md, "toordinal") and md.toordinal() - d.toordinal() == 1:
+                    is_event = True
+                    break
+        if is_event:
+            on_event.append(res)
+        else:
+            off_event.append(res)
+
+    on_event_wr = (
+        len([r for r in on_event if r > 0]) / len(on_event) * 100.0
+        if on_event else 0.0
+    )
+    off_event_wr = (
+        len([r for r in off_event if r > 0]) / len(off_event) * 100.0
+        if off_event else 0.0
+    )
+
+    lines = [
+        "--- THE TRADE LOG (aggregated across all trades) ---",
+        f"Total trades: {n}",
+        f"Wins: {len(wins)}   Losses: {len(losses)}",
+        f"Win rate: {win_rate:.1f}%",
+        f"Expectancy per trade: {expectancy:+.2f}",
+        f"Average win: {avg_win:+.2f}",
+        f"Average loss: {avg_loss:+.2f}",
+        "",
+        f"Long trades: {len(longs)} (win rate {long_wr:.1f}%)",
+        f"Short trades: {len(shorts)} (win rate {short_wr:.1f}%)",
+        "",
+        f"Position size — median: {median_size} units",
+        f"Position size — range: {min(size_sorted) if size_sorted else 0} to {max(size_sorted) if size_sorted else 0}",
+        f"Median hold time: {int(med_hold)} minutes",
+        "",
+        "Exit reason breakdown:",
+    ]
+    for er, count in sorted(exits.items(), key=lambda x: -x[1]):
+        pct = count / n * 100.0
+        lines.append(f"  {er}: {count} ({pct:.1f}%)")
+
+    if has_slip:
+        lines.append("")
+        lines.append("--- EXECUTION QUALITY ---")
+        if entry_slips:
+            lines.append(
+                f"Entry slippage — mean: {sum(entry_slips)/len(entry_slips):+.4f}, "
+                f"median: {_median(entry_slips):+.4f}, "
+                f"max: {max(entry_slips):+.4f}, "
+                f"total cost: {sum(entry_slips):+.2f}"
+            )
+        if exit_slips:
+            lines.append(
+                f"Exit slippage — mean: {sum(exit_slips)/len(exit_slips):+.4f}, "
+                f"median: {_median(exit_slips):+.4f}, "
+                f"max: {max(exit_slips):+.4f}, "
+                f"total cost: {sum(exit_slips):+.2f}"
+            )
+        worst = sorted(
+            [(r, float(r["entry_slippage"] or 0) + float(r["exit_slippage"] or 0))
+             for r in rows if r["entry_slippage"] is not None or r["exit_slippage"] is not None],
+            key=lambda x: -x[1],
+        )[:3]
+        if worst:
+            lines.append("Top 3 trades by total slippage cost:")
+            for r, cost in worst:
+                sym = r.get("symbol") or "?"
+                d = r.get("entry_time") or r.get("traded_at")
+                ds = d.date() if hasattr(d, "date") else d
+                lines.append(f"  {ds} {sym}: {cost:+.4f}")
+
+    if macro_dates:
+        lines.append("")
+        lines.append("--- EVENT CALENDAR PERFORMANCE ---")
+        if on_event:
+            lines.append(
+                f"Trades on or before a macro event: {len(on_event)} "
+                f"(win rate {on_event_wr:.1f}%, "
+                f"expectancy {sum(on_event)/len(on_event):+.2f})"
+            )
+        else:
+            lines.append("No trades on event days.")
+        if off_event:
+            lines.append(
+                f"Trades on non-event days: {len(off_event)} "
+                f"(win rate {off_event_wr:.1f}%, "
+                f"expectancy {sum(off_event)/len(off_event):+.2f})"
+            )
+        else:
+            lines.append("No trades on non-event days.")
+        if on_event and off_event:
+            wr_gap = on_event_wr - off_event_wr
+            lines.append(
+                f"Event-day penalty: {wr_gap:+.1f} percentage points "
+                f"({'worse' if wr_gap < 0 else 'better'} on event days)"
+            )
 
     return "\n".join(lines)

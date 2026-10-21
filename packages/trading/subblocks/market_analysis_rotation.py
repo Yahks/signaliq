@@ -67,6 +67,27 @@ SETUP_ANGLES = [
     "clustering",      # the setup appears in bursts, not uniformly
 ]
 
+# Process template: the article is about the trader's own
+# behavior across the full trade log. Focuses name a process
+# dimension. Angles name what we discovered about it.
+PROCESS_FOCUSES = [
+    "position_sizing",    # how much capital per trade
+    "risk_management",    # drawdown, exposure, correlation of positions
+    "regime_awareness",   # behavior in high-vol vs low-vol regimes
+    "event_calendar",     # performance around macro events
+    "execution_quality",  # slippage, market impact, order type
+]
+PROCESS_ANGLES = [
+    "bias",        # a systematic tendency in the process
+    "drift",       # the process has changed over time
+    "correlation", # two process variables move together
+    "outlier",     # what makes this process deviate from the norm
+    "threshold",   # where the process needs a hard boundary
+]
+
+# All 5 process focuses now have data.
+PROCESS_FOCUSES_WITH_DATA = PROCESS_FOCUSES
+
 # Backward-compatible aliases for code that still imports
 # the flat lists.
 FOCUSES = TRADE_FOCUSES
@@ -118,6 +139,10 @@ def pick_combination(
     if template_id == "setup":
         focuses = SETUP_FOCUSES
         angles = SETUP_ANGLES
+    elif template_id == "process":
+        # Fall back to focuses that have data
+        focuses = PROCESS_FOCUSES_WITH_DATA
+        angles = PROCESS_ANGLES
     else:
         focuses = TRADE_FOCUSES
         angles = TRADE_ANGLES

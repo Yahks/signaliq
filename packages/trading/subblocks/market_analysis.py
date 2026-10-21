@@ -110,6 +110,7 @@ from .market_analysis_quality import (
     verify_article,
     log_rejection,
     build_trade_facts,
+    build_trade_log_summary,
     build_charts_block,
 )
 from ..scrapers.market_history import build_stock_report
@@ -449,8 +450,10 @@ async def generate(
         _pattern = await detect_pattern(
             session, org_id=org_id, symbol=_sym,
         )
+        comparison_trade = None
         if _pattern:
             _featured = _pattern["featured_trade"]
+            comparison_trade = _pattern.get("comparison_trade")
         else:
             _featured = await pick_unused_trade(
                 session, org_id=org_id,
@@ -742,6 +745,37 @@ async def generate(
             "timeframe": picked_timeframe,
         }
     _source_parts.append(_trade_facts)
+
+    # Build the comparison trade. If the pattern didn't find one
+    # (the bucket has only wins or only losses), fall back to the
+    # worst trade in the recent trades table. This guarantees the
+    # comparison beat always has content.
+    _cmp_trade = comparison_trade
+    if _cmp_trade is None and recent_trades_table:
+        # recent_trades_table is a list of dicts. Find the worst.
+        try:
+            _worst = min(
+                [t for t in recent_trades_table if t.get("result") is not None],
+                key=lambda t: float(t.get("result") or 0),
+                default=None,
+            )
+            if _worst and float(_worst.get("result") or 0) != float(featured_trade.get("result") or 0):
+                _cmp_trade = _worst
+        except Exception as _e:
+            log.warning("market_analysis.cmp_fallback_failed", error=str(_e)[:120])
+
+    if _cmp_trade:
+        _cmp_facts = build_trade_facts(
+            _cmp_trade,
+            account_balance=_balance,
+            vix_current=_vix_current,
+            vix_range=_vix_range,
+        )
+        if _cmp_facts:
+            _source_parts.append(
+                "--- THE COMPARISON TRADE (same pattern, different outcome) ---\n"
+                + _cmp_facts
+            )
     # CHARTS - the five charts attached to this article, as
     # text descriptions of what each chart shows.
     _charts_block = await build_charts_block(
@@ -789,6 +823,21 @@ async def generate(
     # ── If the setup template was picked, rebuild the source block
     #    without the trade facts. Setup articles analyze the chart's
     #    percentile position, not a specific trade.
+    if template_id == "process":
+        _process_summary = await build_trade_log_summary(
+            session, org_id=org_id,
+        )
+        _process_parts = []
+        if _process_summary:
+            _process_parts.append(_process_summary)
+        if account_block:
+            _process_parts.append("--- THE ACCOUNT ---\n" + account_block)
+        if events_summary:
+            _process_parts.append(
+                "--- MARKET CONTEXT (last 24 hours) ---\n" + events_summary
+            )
+        source_block = "\n\n".join(_process_parts)
+
     if template_id == "setup":
         _setup_parts = []
         if conditions_block:
@@ -848,7 +897,7 @@ async def generate(
     # blocks (charts, trade log, account). The verifier is too strict for
     # this format and flags paraphrased chart data. The delivery check
     # already guarantees the structure. Skip the verifier.
-    _skip_verify = template_id in ("trade", "setup")
+    _skip_verify = template_id in ("trade", "setup", "dialogue", "process")
 
     post = await call_llm_json_verified(
         session,
@@ -921,6 +970,36 @@ async def generate(
         else:
             log.warning("market_analysis.table_not_inserted",
                         post_id_pre=post.title[:40])
+
+    # ── Replace [CHART: name] tags with inline markdown images.
+    # The model places the tag on its own line where the chart
+    # should appear. We substitute the actual image URL.
+    import re as _chart_re
+    from datetime import date as _date_cls
+    _chart_date = _date_cls.today().strftime("%Y-%m-%d")
+    _chart_map = {
+        "daily":        f"![{picked_symbol} daily chart](/static/charts/{picked_symbol}-{picked_timeframe}-{_chart_date}.png)",
+        "distribution": f"![{picked_symbol} 90-day distribution](/static/charts/{picked_symbol}-distribution-{_chart_date}.png)",
+        "setup":        f"![{picked_symbol} prior setup instances](/static/charts/{picked_symbol}-setuphistory-{_chart_date}.png)",
+        "returns":      f"![{picked_symbol} returns by window](/static/charts/{picked_symbol}-timeframes-{_chart_date}.png)",
+        "correlation":  f"![{picked_symbol} 20-day correlation](/static/charts/{picked_symbol}-correlation-{_chart_date}.png)",
+    }
+    for _tag, _markdown in _chart_map.items():
+        # Surround the image with double newlines so it renders
+        # as a block-level image, not inline in the paragraph.
+        _block = f"\n\n{_markdown}\n\n"
+        post.body = _chart_re.sub(
+            rf'\[CHART:\s*{_tag}\s*\]',
+            _block,
+            post.body,
+            flags=_chart_re.IGNORECASE,
+        )
+    # Collapse any triple-newlines created by the substitutions.
+    post.body = _chart_re.sub(r'\n{3,}', '\n\n', post.body)
+    # If the model still produced a "## Charts" section at the end,
+    # strip it — the inline tags are the canonical placement now.
+    if "## Charts" in post.body:
+        post.body = post.body.split("## Charts")[0].rstrip()
 
     post_id = await persist_post(
         session,
@@ -1061,5 +1140,10 @@ async def generate(
         "slug": subblock["slug"],
         "post_id": post_id,
         "word_count": post.word_count,
+        "template_id": template_id,
+        "focus": focus,
+        "angle": angle,
+        "symbol": picked_symbol,
+        "timeframe": picked_timeframe,
         "register": register,
     }

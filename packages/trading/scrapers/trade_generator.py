@@ -416,6 +416,33 @@ async def ensure_trades_for(
                 "but the setup stayed clean."
             )
 
+        # ─── Slippage simulation ───
+        # Actual fills happen at the next bar's open, not the
+        # close of the signal bar. For entries: we intended to fill
+        # at close[entry_i], but the order executed at open[entry_i+1].
+        # For exits: we intended to fill at stop or target on exit_i,
+        # but the fill happened at open[exit_i+1] (or closes[exit_i]
+        # if exit was the last bar).
+        _sign = 1.0 if direction == "long" else -1.0
+        _entry_i = v["entry_i"]
+        _exit_i = v["exit_i"]
+
+        _intended_entry = v["entry"]
+        _actual_entry = (
+            opens[_entry_i + 1]
+            if _entry_i + 1 < len(opens)
+            else closes[_entry_i]
+        )
+        _entry_slip = (_actual_entry - _intended_entry) * _sign
+
+        _intended_exit = v["exit"]
+        _actual_exit = (
+            opens[_exit_i + 1]
+            if _exit_i + 1 < len(opens)
+            else closes[_exit_i]
+        )
+        _exit_slip = (_actual_exit - _intended_exit) * _sign
+
         _bindings = {
             "oid": org_id,
             "at": dates[i],
@@ -437,6 +464,8 @@ async def ensure_trades_for(
             "sd": setup_detail,
             "hn": hesitation,
             "atr": round(v["atr"], 4),
+            "entry_slip": round(_entry_slip, 6),
+            "exit_slip": round(_exit_slip, 6),
         }
 
         # Completeness check: every required field must be
@@ -465,12 +494,13 @@ async def ensure_trades_for(
                  entry, contracts, stop, target, exit, exit_reason,
                  result, hold_time, source, symbol, timeframe,
                  entry_time, exit_time, setup_detail, hesitation_note,
-                 atr_at_entry)
+                 atr_at_entry, entry_slippage, exit_slippage)
             VALUES
                 (:oid, :at, :inst, :dir, :setup,
                  :entry, :contracts, :stop, :target, :exit, :reason,
                  :result, :hold, 'synthetic', :sym, :tf,
-                 :et, :xt, :sd, :hn, :atr)
+                 :et, :xt, :sd, :hn, :atr,
+                 :entry_slip, :exit_slip)
         """), _bindings)
         inserted += 1
 
