@@ -35,6 +35,7 @@ TRADE_FOCUSES = [
     "liquidity",       # the spread widened or stayed thin
     "structure",       # support/resistance broke or held
     "momentum",        # the momentum faded or accelerated
+    "multi_timeframe", # same setup across 1h vs 1d vs 1w
 ]
 TRADE_ANGLES = [
     "confirmation",    # the signals agreed, and I acted
@@ -76,6 +77,7 @@ PROCESS_FOCUSES = [
     "regime_awareness",   # behavior in high-vol vs low-vol regimes
     "event_calendar",     # performance around macro events
     "execution_quality",  # slippage, market impact, order type
+    "strategy_comparison", # which setup type is outperforming
 ]
 PROCESS_ANGLES = [
     "bias",        # a systematic tendency in the process

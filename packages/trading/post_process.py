@@ -165,6 +165,41 @@ def collapse_checklists(body: str) -> str:
     return "\n\n".join(out)
 
 
+def strip_duplicate_final(body: str) -> str:
+    """If the last non-empty sentence appears twice in a row, remove
+    the duplicate.
+
+    The model sometimes writes the final rule and then repeats it
+    (one in prose, one after reasoning catches the "end with the
+    final rule" instruction). Strip the second copy.
+    """
+    if not body:
+        return body
+    lines = body.rstrip().split("\n")
+    # Walk from the end. Skip empties and chart tags.
+    meaningful = []
+    for i in range(len(lines) - 1, -1, -1):
+        stripped = lines[i].strip()
+        if not stripped:
+            continue
+        if stripped.startswith("[CHART:"):
+            continue
+        if stripped.startswith("!["):
+            continue
+        meaningful.append(i)
+        if len(meaningful) >= 2:
+            break
+    if len(meaningful) < 2:
+        return body
+    i_last, i_prev = meaningful[0], meaningful[1]
+    last = lines[i_last].strip()
+    prev = lines[i_prev].strip()
+    if last and last == prev:
+        # Remove the last (duplicate) occurrence.
+        del lines[i_last]
+    return "\n".join(lines).rstrip()
+
+
 def post_process_article(body: str) -> str:
     """Apply all post-processing steps in order.
 
@@ -177,4 +212,5 @@ def post_process_article(body: str) -> str:
         return body
     body = strip_tables(body)
     body = strip_bold_labels(body)
+    body = strip_duplicate_final(body)
     return body

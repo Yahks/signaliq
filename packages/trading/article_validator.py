@@ -468,6 +468,19 @@ def _parse_number(cell: str) -> float | None:
         return None
 
 
+
+
+def _contract_multiplier(instrument: str | None) -> float:
+    """Per-point or per-share multiplier for an instrument.
+
+    NQ futures: $20 per point.
+    Stocks: $1 per share (the contracts column is share count).
+    """
+    sym = (instrument or "").upper()
+    if sym.startswith("NQ"):
+        return 20.0
+    return 1.0
+
 def _check_trade_table(
     body: str, trades: list[dict[str, Any]],
 ) -> list[str]:
@@ -568,11 +581,16 @@ def _check_trade_table(
         t = _find_trade(d)
         direction = (t.get("direction") or "long").lower()
 
-        # Math check.
+        # Math check. The multiplier depends on the instrument:
+        # NQ is $20/point, stocks are $1/share. Using a fixed 20
+        # would make every stock trade look like a math error.
+        _mult = _contract_multiplier(
+            t.get("instrument") or t.get("symbol")
+        )
         if direction == "long":
-            computed = (exit_p - entry) * contracts * 20
+            computed = (exit_p - entry) * contracts * _mult
         else:
-            computed = (entry - exit_p) * contracts * 20
+            computed = (entry - exit_p) * contracts * _mult
         if abs(computed - result) > 1:
             reasons.append(
                 f"trade table: math error on {date_cell}: "
@@ -818,6 +836,7 @@ def validate(
     account_equity: float | None = None,
     performance: dict[str, Any] | None = None,
     violations_text: str = "",
+    skeleton_text: str = "",
 ) -> list[str]:
     """Return rejection reasons. Empty list = article passes."""
     reasons: list[str] = []
@@ -833,11 +852,10 @@ def validate(
             reasons.append(f"fabricated dollar figure: ${n:,}")
 
     # 2. Every percent figure must be in the source material.
-    # The skeleton text was never threaded into validate()'s
-    # signature. Its allowance is folded into analysis already,
-    # so the extra argument is dropped.
+    # The skeleton text is threaded in — it carries the trade's
+    # percent_of_equity, which the model quotes directly.
     allowed_p = _allowed_percents(
-        analysis, trades, account_equity,
+        analysis, trades, account_equity, skeleton_text=skeleton_text,
     )
     for p in sorted(_percents_from(body)):
         # 0.05 tolerance — 0.17 matches 0.2 matches 0.15; a true

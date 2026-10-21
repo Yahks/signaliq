@@ -752,15 +752,24 @@ async def generate(
     # comparison beat always has content.
     _cmp_trade = comparison_trade
     if _cmp_trade is None and recent_trades_table:
-        # recent_trades_table is a list of dicts. Find the worst.
+        # recent_trades_table might be a list of dicts or a string
+        # (the string form is the rendered markdown table). Guard
+        # against the wrong type.
         try:
-            _worst = min(
-                [t for t in recent_trades_table if t.get("result") is not None],
-                key=lambda t: float(t.get("result") or 0),
-                default=None,
-            )
-            if _worst and float(_worst.get("result") or 0) != float(featured_trade.get("result") or 0):
-                _cmp_trade = _worst
+            _table_list = None
+            if isinstance(recent_trades_table, list):
+                _table_list = recent_trades_table
+            # If it's a string, parse rows out of it? No — too
+            # fragile. Skip the fallback and let the model improvise.
+            if _table_list:
+                _worst = min(
+                    [t for t in _table_list
+                     if isinstance(t, dict) and t.get("result") is not None],
+                    key=lambda t: float(t.get("result") or 0),
+                    default=None,
+                )
+                if _worst and float(_worst.get("result") or 0) != float(featured_trade.get("result") or 0):
+                    _cmp_trade = _worst
         except Exception as _e:
             log.warning("market_analysis.cmp_fallback_failed", error=str(_e)[:120])
 

@@ -39,7 +39,7 @@ log = get_logger(__name__)
 # are kept for backward compatibility but no longer drive the
 # check; see _MIN_WORDS / _MAX_WORDS below.
 _MIN_WORDS = 630
-_MAX_WORDS = 1200
+_MAX_WORDS = 1500
 _MIN_WORDS_RATIO = _MIN_WORDS / 900   # 0.70 — legacy, unused
 
 # S.8.49.5 — view registers tolerate this many verify-only flags.

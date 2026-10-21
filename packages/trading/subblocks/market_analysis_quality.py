@@ -691,6 +691,7 @@ async def build_trade_log_summary(
             exit_reason,
             direction,
             symbol,
+            setup,
             traded_at,
             entry_time
         FROM trade_log
@@ -794,6 +795,26 @@ async def build_trade_log_summary(
         if off_event else 0.0
     )
 
+    # ─── Strategy type breakdown ───
+    def _setup_type(setup_text):
+        s = (setup_text or "").lower()
+        if "long breakout" in s:
+            return "long_breakout"
+        if "short breakdown" in s:
+            return "short_breakdown"
+        if "long mean reversion" in s:
+            return "long_mean_rev"
+        if "short mean reversion" in s:
+            return "short_mean_rev"
+        return "unknown"
+
+    by_strategy: dict[str, list[float]] = {}
+    for r in rows:
+        if r["result"] is None:
+            continue
+        st = _setup_type(r.get("setup"))
+        by_strategy.setdefault(st, []).append(float(r["result"]))
+
     lines = [
         "--- THE TRADE LOG (aggregated across all trades) ---",
         f"Total trades: {n}",
@@ -815,6 +836,24 @@ async def build_trade_log_summary(
     for er, count in sorted(exits.items(), key=lambda x: -x[1]):
         pct = count / n * 100.0
         lines.append(f"  {er}: {count} ({pct:.1f}%)")
+
+    if by_strategy:
+        lines.append("")
+        lines.append("--- STRATEGY BREAKDOWN ---")
+        for st, st_results in sorted(
+            by_strategy.items(), key=lambda kv: -len(kv[1])
+        ):
+            if not st_results:
+                continue
+            st_n = len(st_results)
+            st_wins = [r for r in st_results if r > 0]
+            st_wr = len(st_wins) / st_n * 100.0
+            st_exp = sum(st_results) / st_n
+            lines.append(
+                f"  {st}: {st_n} trades, "
+                f"win rate {st_wr:.1f}%, "
+                f"expectancy {st_exp:+.2f}"
+            )
 
     if has_slip:
         lines.append("")

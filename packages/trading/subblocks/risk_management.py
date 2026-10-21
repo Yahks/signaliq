@@ -55,8 +55,15 @@ Dates in prose: "Wednesday, June 3, 2026" or "June 3, 2026."
 Never "2026-06-03."
 
 No headings. No bold labels. No beat names printed as titles.
-No tables — except the trade verification table. No formula
-notation — write every formula in words.
+No tables — EXCEPT the verification table. The skeleton
+contains a block titled "--- VERIFICATION TABLE ---". You MUST
+quote that table verbatim — same rows, same dates, same order,
+same numbers. Do NOT compute any number in the table. Do NOT
+reorder the rows. Do NOT omit rows. Do NOT add rows. Just copy
+the block exactly as it appears in the skeleton.
+
+Do NOT write any other table. No formula notation — write every
+formula in words.
 
 THE ARTICLE HAS ONE SUBJECT TRADE. The skeleton contains a
 block titled "THE ARTICLE'S TRADE". Every beat except the
@@ -287,6 +294,72 @@ LENGTH: 500-800 words.
 """
 
 
+
+
+def _strip_all_tables(body: str) -> str:
+    """Remove every markdown table from the body.
+
+    The model writes its own table from the skeleton. It gets
+    the math wrong. We discard it and insert the Python-computed
+    table instead.
+    """
+    if not body:
+        return body
+    lines = body.splitlines()
+    out: list[str] = []
+    in_table = False
+    for ln in lines:
+        s = ln.strip()
+        # A markdown table starts with a line beginning `|` and
+        # has a header separator on the next line. We treat any
+        # contiguous run of `| ... |` lines as one table.
+        if s.startswith("|") and s.endswith("|"):
+            in_table = True
+            continue
+        if in_table and not s:
+            # Blank line after a table ends it.
+            in_table = False
+            out.append("")
+            continue
+        if not in_table:
+            out.append(ln)
+    # Collapse extra blank lines.
+    joined = "\n".join(out)
+    while "\n\n\n" in joined:
+        joined = joined.replace("\n\n\n", "\n\n")
+    return joined.strip()
+
+
+def _insert_table_before_cta(body: str, table: str) -> str:
+    """Insert the verification table into the article body.
+
+    The table goes before the final CTA paragraph. The CTA is
+    the paragraph that mentions the product URL or contains
+    "email me". Everything before it is the body; insert the
+    table at that point.
+    """
+    if not table or not body:
+        return body
+    paras = body.split("\n\n")
+    # Find the CTA paragraph — the last paragraph that mentions
+    # the URL or "email me".
+    cta_idx = None
+    for i in range(len(paras) - 1, -1, -1):
+        p_text = paras[i]
+        if ("signaliq.com" in p_text.lower()
+                or "email me" in p_text.lower()
+                or "see exactly how" in p_text.lower()
+                or "compare our data" in p_text.lower()
+                or "full technical writeup" in p_text.lower()):
+            cta_idx = i
+            break
+    if cta_idx is None:
+        # No CTA found. Insert at the end.
+        paras.append(table)
+    else:
+        paras.insert(cta_idx, table)
+    return "\n\n".join(paras).strip()
+
 async def generate(
     session: AsyncSession,
     *,
@@ -508,10 +581,21 @@ async def generate(
                 skeleton, _re.DOTALL,
             )
             _violations_text = _vm.group(0) if _vm else ""
+
+            # ── Strip the model's table, insert Python's table ──
+            from packages.trading.article_trades import build_trade_table
+            _computed_table = build_trade_table(_trades[:6])
+            if _computed_table:
+                post.body = _strip_all_tables(post.body)
+                post.body = _insert_table_before_cta(
+                    post.body, _computed_table,
+                )
+
             reasons = validate(
                 post.body, analysis_block, _trades, _equity,
                 performance=_perf,
                 violations_text=_violations_text,
+                skeleton_text=skeleton,
             )
             if reasons:
                 log.warning(

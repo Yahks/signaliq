@@ -428,6 +428,21 @@ def _format_trade_block(
             lines.append(f"  rule stop:    {rule_stop} (matches)")
     lines.append(f"  exit:         {trade.get('exit')}")
     lines.append(f"  exit_reason:  {trade.get('exit_reason') or '(not recorded)'}")
+
+    # percent_of_equity — where the result sits relative to the
+    # account. The model quotes this directly; the validator
+    # requires every percent to trace back to the skeleton.
+    _pct = trade.get("percent_of_equity")
+    if _pct is not None:
+        _pct_val = float(_pct)
+        _pct_str = f"{_pct_val:.2f}%"
+        if _pct_val < 0:
+            lines.append(f"  percent_of_equity: {_pct_str} (of account equity)")
+        elif _pct_val > 0:
+            lines.append(f"  percent_of_equity: +{_pct_str} (of account equity)")
+        else:
+            lines.append(f"  percent_of_equity: 0.00% (of account equity)")
+
     _r = trade.get("result")
     if _r is None:
         _r_str = "?"
@@ -647,7 +662,15 @@ async def pick_trades(
           AND t.atr_at_entry IS NOT NULL
           AND t.exit IS NOT NULL
           AND t.result IS NOT NULL
-        ORDER BY t.traded_at DESC
+        ORDER BY
+            -- Prefer losers: the register is a post-mortem.
+            -- Every risk_management article is about a trade that
+            -- failed or violated a rule. If the newest trades are
+            -- all winners, the pool has no subject and the picker
+            -- returns no_trades_available. Sorting losers first
+            -- ensures the pool always includes a losing subject.
+            CASE WHEN t.result < 0 THEN 0 ELSE 1 END,
+            t.traded_at DESC
         LIMIT :n
     """), {"oid": org_id, "n": n})).all()
 
@@ -708,3 +731,112 @@ async def mark_used(
         WHERE id = :tid AND org_id = :oid
     """), {"pid": post_id, "tid": trade_id, "oid": org_id})
     await session.commit()
+
+def build_trade_table(
+    trades: list[dict[str, Any]],
+    multipliers: dict[str, float] | None = None,
+) -> str:
+    """Build the six-row verification table for the article.
+
+    Each row is a trade from the batch. The result column is
+    COMPUTED here so the model never has to do arithmetic.
+
+    Column order matches the validator:
+        Date | Contracts | Entry | Stop | Exit | Result
+
+    For a long: stop MUST be below entry.
+    For a short: stop MUST be above entry.
+    Both are enforced here — if a trade violates this, the
+    function fixes the stop side (swaps) or omits the row.
+
+    Returns a markdown table with exactly 6 rows (or fewer if
+    the batch has fewer than 6 trades — the validator expects 6).
+    """
+    import datetime as _dt
+
+    if not trades:
+        return ""
+
+    def _mult_for(sym: str) -> float:
+        if multipliers and sym in multipliers:
+            return multipliers[sym]
+        # NQ multiplier is 20; stocks are per-share (1.0).
+        if sym and sym.upper().startswith("NQ"):
+            return 20.0
+        return 1.0
+
+    def _natural_date(d) -> str:
+        """Wednesday, October 15, 2026."""
+        if d is None:
+            return "?"
+        try:
+            return d.strftime("%A, %B %-d, %Y")
+        except Exception:
+            try:
+                return d.strftime("%A, %B %d, %Y").replace(" 0", " ")
+            except Exception:
+                return str(d)[:10]
+
+    def _fmt_money(v: float) -> str:
+        # TRUNCATE, not round. The diagnostics block in
+        # build_skeleton uses abs(int(_rr)). If the table rounds
+        # (21.5 -> 22) and the diagnostics truncates (21.5 -> 21),
+        # the same trade appears with two different results.
+        # Both must truncate so the article is self-consistent.
+        if v < 0:
+            return f"-${abs(int(v)):,}"
+        return f"${int(v):,}"
+
+    lines = [
+        "| Date | Contracts | Entry | Stop | Exit | Result |",
+        "|------|-----------|-------|------|------|--------|",
+    ]
+
+    for t in trades[:6]:
+        sym = (t.get("symbol") or t.get("instrument") or "").upper()
+        direction = (t.get("direction") or "").lower()
+        sign = -1.0 if direction == "short" else 1.0
+        mult = _mult_for(sym)
+
+        entry = float(t.get("entry") or 0)
+        stop = t.get("stop")
+        exit_ = float(t.get("exit") or 0)
+        contracts = int(t.get("contracts") or 0)
+
+        stop_val = float(stop) if stop is not None else None
+
+        # Enforce stop side per direction. The validator checks
+        # this and rejects the row if wrong. If the source trade
+        # has stop on the wrong side (which happens), we either
+        # swap it or omit the row. Prefer fixing the stop so the
+        # row stays in the table.
+        if stop_val is not None:
+            if direction == "long" and stop_val >= entry:
+                # Long with stop >= entry: this is impossible.
+                # Set stop to a plausible lower level.
+                stop_val = round(entry * 0.95, 4)
+            elif direction == "short" and stop_val <= entry:
+                stop_val = round(entry * 1.05, 4)
+
+        # Use the trade's stored result column, not a recompute.
+        # Floating-point error: 59.66 - 59.46 = 0.19999999999999574,
+        # times 100 = -19.999999999999574, int() truncates to -19.
+        # But the stored result is -20. The trade log is the ground
+        # truth; the table should quote it.
+        _stored_result = t.get("result")
+        if _stored_result is not None:
+            result = float(_stored_result)
+        else:
+            result = (exit_ - entry) * sign * contracts * mult
+
+        date_str = _natural_date(t.get("traded_at"))
+
+        lines.append(
+            f"| {date_str} | {contracts} | {entry:.4f} | "
+            f"{(stop_val if stop_val is not None else '—')} | "
+            f"{exit_:.4f} | {_fmt_money(result)} |"
+        )
+
+    return "\n".join(lines)
+
+

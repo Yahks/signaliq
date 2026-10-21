@@ -1114,14 +1114,32 @@ def _check_chart_header(text: str) -> str | None:
 
 
 def _check_has_fix(text: str) -> str | None:
-    """Article must contain a process fix - a change the
-    trader now makes based on the trade."""
+    """Article must contain a process fix.
+
+    A fix is any sentence that either:
+      - opens with a conditional (If / When / Whenever) and commits
+        to an action in first person
+      - commits to a discipline ("I now", "I only", "I never", etc.)
+      - names a rule ("the rule is", "my rule", "the conditional rule")
+      - states a change ("I added", "I changed", "going forward")
+    """
     import re
     patterns = [
-        r"\b(?:I now|Now I|I've (?:added|changed|started|stopped|begun)|I (?:added|changed|started|stopped|begun)|going forward I|from now on I|I will|The fix is|My fix is|The conditional rule|The rule is|My rule|The lesson is|I only take|I skip|I limit|I exit|I enter only|If .{0,60} then I)\b",
+        # Conditional + first-person commitment
+        r"(?:^|\.\s+|\n\s*)(?:If|When|Whenever)\s+.{0,300}?,\s*(?:then\s+)?(?:I\s+|I'll\s+|I will\s+)",
+        # Commitment verbs
+        r"\bI\s+(?:now|only|always|never|skip|avoid|limit|cap|require|refuse|stop)\b",
+        # Rule statements
+        r"\b(?:the|my)\s+(?:conditional\s+)?rule\s+(?:is|I\s|codifies|emerged|governs|now)\b",
+        # Change statements
+        r"\bI\s+(?:added|changed|started|stopped|began|updated|modified|revised|tightened|widened)\b",
+        # Going forward
+        r"\b(?:going forward|from now on|since that trade|the lesson)\b",
+        # "The fix is" / "The takeaway is"
+        r"\bthe\s+(?:fix|takeaway)\s+(?:is|was)\b",
     ]
-    for p in patterns:
-        if re.search(p, text, re.IGNORECASE):
+    for p_ in patterns:
+        if re.search(p_, text, re.IGNORECASE):
             return None
     return "fix_missing"
 
@@ -1206,10 +1224,22 @@ def _check_references_trade_log(text: str) -> str | None:
     return "trade_log_not_referenced"
 
 
+def _check_no_labeled_rule(text: str) -> str | None:
+    """Flag articles that end with 'The final rule:' as a label.
+
+    The rule should stand on its own. The label is a template tic.
+    """
+    import re
+    if re.search(r"^\s*The final rule\s*[:—-]", text, re.MULTILINE | re.IGNORECASE):
+        return "labeled_final_rule"
+    return None
+
+
 def _check_ma_trade(text: str, template_id: str | None) -> list[str]:
     if template_id != "trade":
         return []
     v = [
+        _check_no_labeled_rule(text),
         _check_precise_times(text),
         _check_has_fix(text),
         _check_fabrication_hedge(text),
@@ -1223,6 +1253,7 @@ def _check_ma_setup(text: str, template_id: str | None) -> list[str]:
     if template_id != "setup":
         return []
     v = [
+        _check_no_labeled_rule(text),
         _check_has_fix(text),
         _check_fabrication_hedge(text),
         _check_no_checklist(text),
@@ -1236,6 +1267,7 @@ def _check_ma_dialogue(text: str, template_id: str | None) -> list[str]:
     if template_id != "dialogue":
         return []
     v = [
+        _check_no_labeled_rule(text),
         _check_precise_times(text),
         _check_has_fix(text),
         _check_fabrication_hedge(text),
@@ -1250,6 +1282,7 @@ def _check_ma_process(text: str, template_id: str | None) -> list[str]:
     if template_id != "process":
         return []
     v = [
+        _check_no_labeled_rule(text),
         _check_has_fix(text),
         _check_fabrication_hedge(text),
         _check_no_checklist(text),

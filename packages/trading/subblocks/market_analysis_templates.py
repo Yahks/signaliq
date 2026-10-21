@@ -63,7 +63,27 @@ BEAT SHAPE (with minimum word counts)
 4. THE PROOF (150 words minimum): Exact numbers, exact entry/exit timestamps.
 5. THE FIX (100 words minimum): The change to my process. Start with a first-person commitment.
 6. THE COMPARISON (150 words minimum): Featured trade vs. comparison trade. What was different?
-7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+7. THE FINAL RULE (40-60 words): The rule in its strongest form, standing on its own. State the condition, the action, and what violating it costs. Do NOT write 'The final rule:' as a label — write the rule directly. The reader knows it's the final rule from its position, not its prefix.
+
+
+MULTI-TIMEFRAME CHECK (MANDATORY):
+The source block contains a THE RETURNS section with 20-day,
+12-week, 6-month, and 5-year returns. You MUST reference at least
+two of these returns in the body. If the short-horizon return
+disagrees with the long-horizon return (e.g., 20-day negative,
+12-week positive), explain what the divergence means for this
+setup. If they agree, state that the setup has consistent
+support across timeframes.
+
+
+MULTI-TIMEFRAME CHECK (MANDATORY):
+The source block contains a THE RETURNS section with 20-day,
+12-week, 6-month, and 5-year returns. You MUST reference at least
+two of these returns in the body. If the short-horizon return
+disagrees with the long-horizon return (e.g., 20-day negative,
+12-week positive), explain what the divergence means for this
+setup. If they agree, state that the setup has consistent
+support across timeframes.
 
 HARD RULES
 1. EVERY NUMBER from the source block. No invented prices, dates, ATRs, or stops.
@@ -100,7 +120,7 @@ BEAT SHAPE (with minimum word counts)
 4. THE OUTCOME (100 words minimum): Forward returns from the setup history.
 5. THE LESSON (150 words minimum): What the outcome taught me, in statistical terms. Resolve into a conditional rule.
 6. THE FIX (100 words minimum): The change to my process.
-7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+7. THE FINAL RULE (40-60 words): The rule in its strongest form, standing on its own. State the condition, the action, and what violating it costs. Do NOT write 'The final rule:' as a label — write the rule directly. The reader knows it's the final rule from its position, not its prefix.
 
 HARD RULES
 1. EVERY NUMBER from the source block.
@@ -138,7 +158,7 @@ BEAT SHAPE (with minimum word counts)
 6. THE COMPARISON (120 words minimum): Featured trade vs. comparison trade.
 7. THE OUTCOME (100 words minimum): What happened. Entry, exit, result. Or forward returns.
 8. THE LESSON (100 words minimum): The conditional rule that emerged.
-9. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+9. THE FINAL RULE (40-60 words): The rule in its strongest form, standing on its own. State the condition, the action, and what violating it costs. Do NOT write 'The final rule:' as a label — write the rule directly. The reader knows it's the final rule from its position, not its prefix.
 
 HARD RULES
 1. EVERY NUMBER from the source block.
@@ -179,7 +199,24 @@ BEAT SHAPE (with minimum word counts)
 4. THE PROOF (150 words minimum): Specific trades or windows that illustrate the pattern. Reference specific dates and results from the trade log.
 5. THE FIX (150 words minimum): The process change. Written as a conditional rule: "If [condition from the trade log], then I [action]." The condition MUST use a number from the trade-log summary (median size, win rate, event-day penalty, slippage, etc.). Do NOT invent a threshold like "30-day realized volatility" if it isn't in the summary. If the summary doesn't name it, don't say it.
 6. THE LESSON (100 words minimum): What the pattern taught me, stated as a general principle.
-7. THE FINAL RULE (20 words minimum): One conditional rule. Not a question.
+7. THE FINAL RULE (40-60 words): The rule in its strongest form, standing on its own. State the condition, the action, and what violating it costs. Do NOT write 'The final rule:' as a label — write the rule directly. The reader knows it's the final rule from its position, not its prefix.
+
+
+STRATEGY COMPARISON (MANDATORY):
+The source block contains a STRATEGY BREAKDOWN section with win
+rate and expectancy by setup type. You MUST reference at least
+two strategy types. Compare their win rates and expectancies. If
+one strategy is outperforming in the current regime, say which
+and why.
+
+MULTI-TIMEFRAME CHECK (MANDATORY):
+The source block contains a THE RETURNS section with 20-day,
+12-week, 6-month, and 5-year returns. You MUST reference at least
+two of these returns in the body. If the short-horizon return
+disagrees with the long-horizon return (e.g., 20-day negative,
+12-week positive), explain what the divergence means for this
+setup. If they agree, state that the setup has consistent
+support across timeframes.
 
 HARD RULES
 1. EVERY NUMBER from the trade log summary or the account block. Do not invent. Do NOT invent a threshold that isn't in the summary (e.g., "30-day realized volatility above the 70th percentile" — if the summary doesn't have a 30-day volatility or a 70th percentile, do not write it). If you need a number to make a rule conditional, use the numbers in the summary (median size, win rate, event-day penalty, slippage) — not numbers from your imagination.
