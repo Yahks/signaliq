@@ -413,27 +413,101 @@ async def generate(
                         error=str(exc)[:200])
             return {"status": "no_trades_available", "slug": slug}
 
-    pool = await pick_trades(session, org_id, n=6)
-    if not pool or len(pool) < 4:
-        log.info("risk_management.queue_empty", org_id=org_id[:8])
-        return {"status": "no_trades_available", "slug": slug}
-
-    # Subject is the first LOSING trade (post-mortem register).
-    losers = [t for t in pool if (t.get("result") or 0) < 0]
-    if not losers:
-        return {"status": "no_trades_available", "slug": slug}
-    # Prefer a loser that VIOLATES a rule — the register is a
-    # post-mortem, and a violation gives the article a concrete
-    # problem to diagnose.
+    # ── Subject-first selection with per-symbol coherence ──
+    #
+    # The article must be about ONE instrument. The subject is a
+    # trade for that instrument; the diagnostics are 5 more
+    # trades of the SAME instrument. If the subject's symbol has
+    # fewer than 6 unused trades, regenerate trades for that
+    # symbol. If regeneration fails, try the next candidate.
     from packages.trading.article_trades import (
         build_skeleton, read_process, load_performance_record,
-        _equity_from_summary, _rule_violations,
+        _equity_from_summary, _rule_violations, pick_trades as _pick_trades,
     )
+
     process = await read_process(session, org_id)
-    violating = [
-        t for t in losers if _rule_violations(t, process)
-    ]
-    subject = violating[0] if violating else losers[0]
+
+    # Get a first batch of candidates (any symbol) so we can find
+    # a coherent-violation trade with a symbol that has enough
+    # trades to fill the article.
+    # ── Symbol pick → ensure trades → subject selection ──
+    # Ported from market_analysis. The flow:
+    #   1. pick_stock_and_timeframe → symbol + timeframe.
+    #   2. ensure_trades_for(10) → generate 10 trades from that
+    #      symbol's price bars.
+    #   3. Pick the subject (coherent violation first) and 5
+    #      siblings from that symbol's trades.
+    # Guarantees 6 rows when the symbol generates 10+ trades
+    # (the normal case). Retries up to 3 symbols if a stock is
+    # thin or its history is invalid.
+    from packages.trading.article_trades import (
+        build_skeleton, read_process, load_performance_record,
+        _equity_from_summary, _rule_violations, pick_trades as _pick_trades,
+    )
+    from ..scrapers.trade_generator import ensure_trades_for
+    from .market_analysis_rotation_stock import pick_stock_and_timeframe
+
+    process = await read_process(session, org_id)
+
+    _MAX_STOCK_RETRIES = 3
+    subject = None
+    pool: list[dict] = []
+
+    for _attempt in range(_MAX_STOCK_RETRIES):
+        stock_pick = await pick_stock_and_timeframe(
+            session,
+            org_id=org_id,
+            subblock_id=subblock["id"],
+        )
+        if stock_pick is None:
+            log.warning("risk_management.no_stock_pick",
+                        org_id=org_id[:8])
+            return {"status": "no_stock_pick", "slug": slug}
+        (
+            _sym, _tf, _ftype, _fsection,
+        ) = stock_pick
+
+        await session.commit()
+
+        await ensure_trades_for(
+            session, org_id=org_id,
+            symbol=_sym, timeframe=_tf, count=10,
+        )
+
+        _sym_trades = await _pick_trades(
+            session, org_id, n=10, symbol=_sym,
+        )
+        if len(_sym_trades) < 4:
+            log.warning(
+                "risk_management.retry_thin_symbol",
+                symbol=_sym, timeframe=_tf,
+                available=len(_sym_trades),
+                attempt=_attempt + 1,
+            )
+            continue
+
+        _coherent = [
+            t for t in _sym_trades if _rule_violations(t, process)
+        ]
+        _losers = [
+            t for t in _sym_trades if (t.get("result") or 0) < 0
+        ]
+        _ordered = _coherent + [
+            t for t in _losers if t not in _coherent
+        ]
+        _ordered += [
+            t for t in _sym_trades if t not in _ordered
+        ]
+
+        subject = _ordered[0]
+        pool = _ordered[:6]
+        break
+
+    if subject is None or len(pool) < 4:
+        log.warning("risk_management.no_coherent_symbol",
+                    org_id=org_id[:8])
+        return {"status": "no_trades_available", "slug": slug}
+
     related = [t for t in pool if t["id"] != subject["id"]]
     subject_id = subject["id"]
     trade_ids = [t["id"] for t in pool]

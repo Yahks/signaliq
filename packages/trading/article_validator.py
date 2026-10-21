@@ -513,9 +513,11 @@ def _check_trade_table(
             break
         rows.append(ln)
 
-    if len(rows) != 6:
+    # Variable row count: ensure_trades_for generates 10 trades,
+    # the picker takes up to 6. Require at least 4 rows.
+    if len(rows) < 4:
         reasons.append(
-            f"trade table: expected 6 rows, got {len(rows)}"
+            f"trade table: expected at least 4 rows, got {len(rows)}"
         )
 
     # Build the set of valid (year, month, day) tuples from the

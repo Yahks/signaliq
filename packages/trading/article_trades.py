@@ -359,15 +359,29 @@ def _rule_violations(
             f"set the stop at {implied}."
         )
 
-    # Sizing rule.
+    # Sizing rule. Outcome-aware: only flag a violation when the
+    # narrative would be coherent.
+    #   - Under-sized on a WIN: left money on the table. Coherent.
+    #   - Under-sized on a LOSS: bigger size would have lost more.
+    #     Incoherent — that's not a mistake.
+    #   - Over-sized on a LOSS: amplified the loss. Coherent.
+    #   - Over-sized on a WIN: lucky. Incoherent.
     if atr and contracts:
         formula = int(2000 / (atr * 20))
         if formula > 0 and contracts != formula:
             side = "under" if contracts < formula else "over"
-            violations.append(
-                f"Sizing rule violated: {contracts} contracts used "
-                f"but the formula says {formula} ({side}-sized)."
+            _r = float(result) if result is not None else 0.0
+            _is_win = _r > 0
+            _is_loss = _r < 0
+            _coherent = (
+                (side == "under" and _is_win)
+                or (side == "over" and _is_loss)
             )
+            if _coherent:
+                violations.append(
+                    f"Sizing rule violated: {contracts} contracts used "
+                    f"but the formula says {formula} ({side}-sized)."
+                )
 
     # ATR filter.
     if atr is not None and atr > 30:
@@ -481,6 +495,18 @@ def build_skeleton(
     lines.append("")
     lines.extend(_format_trade_block("", trade))
 
+    # Compute percent_of_equity for the subject trade. The DB
+    # column is NULL for legacy trades, so we compute from
+    # result / account_equity. The model quotes this number;
+    # the validator finds it in the skeleton.
+    _subject_result = trade.get("result")
+    if _subject_result is not None and account_equity and account_equity > 0:
+        _pct = float(_subject_result) / float(account_equity) * 100.0
+        if _pct < 0:
+            lines.append(f"  percent_of_equity: {_pct:.2f}% (of account equity)")
+        else:
+            lines.append(f"  percent_of_equity: +{_pct:.2f}% (of account equity)")
+
     if related:
         lines.append(
             "THE RELATED TRADES — for the diagnostics list ONLY. "
@@ -515,6 +541,14 @@ def build_skeleton(
             else:
                 _rr_str = "SCRATCH ($0)"
             lines.append(f"    result:       {_rr_str}")
+            # Compute percent_of_equity for related trades too.
+            _r_res = r.get("result")
+            if _r_res is not None and account_equity and account_equity > 0:
+                _r_pct = float(_r_res) / float(account_equity) * 100.0
+                if _r_pct < 0:
+                    lines.append(f"    percent_of_equity: {_r_pct:.2f}% (of account equity)")
+                else:
+                    lines.append(f"    percent_of_equity: +{_r_pct:.2f}% (of account equity)")
             lines.append(f"    atr_at_entry: {r.get('atr_at_entry')}")
             lines.append("")
 
@@ -639,14 +673,35 @@ async def count_unused_trades(session: AsyncSession, org_id: str) -> int:
 
 
 async def pick_trades(
-    session: AsyncSession, org_id: str, *, n: int = 6,
+    session: AsyncSession, org_id: str, *,
+    n: int = 6, symbol: str | None = None,
+    exclude_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return up to n unused trades, newest first.
 
-    No batch filter. The pool is every alive, unused trade in the
-    org. The picker takes the newest n.
+    If `symbol` is set, only trades for that instrument are
+    returned. Used by risk_management for per-symbol coherence
+    in the diagnostics block: the article is about one instrument,
+    and the diagnostics must be trades of the same instrument.
+
+    If `exclude_ids` is set, those trade IDs are skipped (used
+    to prevent the subject from appearing in its own diagnostics).
     """
-    rows = (await session.execute(sql_text("""
+    # Build the query with optional filters.
+    _where_extra = ""
+    _params: dict[str, Any] = {"oid": org_id, "n": n}
+
+    if symbol:
+        _where_extra += " AND t.instrument = :sym"
+        _params["sym"] = symbol
+
+    if exclude_ids:
+        # asyncpg wants an array + ANY, not a tuple + IN.
+        # `NOT IN $1` errors with "syntax error at or near $1".
+        _where_extra += " AND NOT (t.id::text = ANY(:excludes))"
+        _params["excludes"] = list(exclude_ids)
+
+    rows = (await session.execute(sql_text(f"""
         SELECT t.id::text, t.traded_at, t.instrument, t.direction,
                t.setup, t.entry, t.contracts, t.stop, t.atr_at_entry,
                t.exit, t.exit_reason, t.result,
@@ -662,17 +717,12 @@ async def pick_trades(
           AND t.atr_at_entry IS NOT NULL
           AND t.exit IS NOT NULL
           AND t.result IS NOT NULL
+          {_where_extra}
         ORDER BY
-            -- Prefer losers: the register is a post-mortem.
-            -- Every risk_management article is about a trade that
-            -- failed or violated a rule. If the newest trades are
-            -- all winners, the pool has no subject and the picker
-            -- returns no_trades_available. Sorting losers first
-            -- ensures the pool always includes a losing subject.
             CASE WHEN t.result < 0 THEN 0 ELSE 1 END,
             t.traded_at DESC
         LIMIT :n
-    """), {"oid": org_id, "n": n})).all()
+    """), _params)).all()
 
     if not rows:
         return []
