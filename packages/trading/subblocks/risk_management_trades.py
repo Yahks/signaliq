@@ -604,6 +604,58 @@ async def ensure_trades_for(
                 f"< limit=${-_daily_limit_dollars:.2f}"
             )
 
+        # Cap 2b: rolling per-name realized loss.
+        # Even if no single day exceeds the daily loss limit,
+        # repeated losses on the same symbol across a rolling
+        # window can add up. Query the last N days of losses on
+        # this symbol, add the new loss, and skip if the total
+        # would exceed the rolling cap.
+        if _skip_reason is None and _entry_day is not None:
+            _rolling_pct = float(strategy.get("max_realized_loss_per_name_rolling_3d_pct", 0.02))
+            _rolling_window = int(strategy.get("rolling_loss_window_days", 3))
+            _rolling_cap_dollars = _account_equity * _rolling_pct
+
+            # Compute the window boundaries in Python so we can
+            # pass explicit dates. asyncpg does not support inline
+            # casts like `:day::date`.
+            from datetime import timedelta as _td
+            _window_start = _entry_day - _td(days=_rolling_window)
+
+            _rolling_rows = (await session.execute(sql_text("""
+                SELECT result
+                FROM trade_log
+                WHERE org_id = :oid
+                  AND symbol = :sym
+                  AND deleted_at IS NULL
+                  AND traded_at::date BETWEEN :d_start AND :d_end
+                  AND result < 0
+            """), {
+                "oid": org_id, "sym": symbol,
+                "d_start": _window_start, "d_end": _entry_day,
+            })).mappings().all()
+
+            _rolling_prior_losses = sum(
+                float(_r["result"]) for _r in _rolling_rows if _r["result"] is not None
+            )
+            # Include in-batch losses from earlier iterations in this batch
+            _rolling_batch_losses = sum(
+                v for d, v in _batch_losses_by_day.items()
+                if d is not None and _entry_day is not None
+                and (d <= _entry_day)
+                and ((_entry_day - d).days <= _rolling_window)
+            )
+
+            _rolling_total = (
+                _rolling_prior_losses + _rolling_batch_losses + _new_loss
+            )
+            if _rolling_total < -_rolling_cap_dollars:
+                _skip_reason = (
+                    f"rolling_loss_cap: prior_3d=${_rolling_prior_losses:.2f} "
+                    f"+ batch=${_rolling_batch_losses:.2f} "
+                    f"+ new=${_new_loss:.2f} "
+                    f"< limit=${-_rolling_cap_dollars:.2f}"
+                )
+
         # Cap 3: re-entry cooldown after a stop-out
         if _skip_reason is None and _last_stop_out_bar is not None and _cooldown_bars > 0:
             # Cooldown in bars: since we're iterating bars, find
