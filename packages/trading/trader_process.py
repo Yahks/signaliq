@@ -84,6 +84,7 @@ def load_synthetic_trades() -> list[dict]:
 async def get_process_excerpt(
     session: AsyncSession, org_id: str, dimension_id: str,
     include_synthetic: bool = False,
+    instrument_type: str | None = None,
 ) -> str:
     """Return a bounded excerpt of the trader's process + history.
 
@@ -113,15 +114,32 @@ async def get_process_excerpt(
             return s
         return s[:limit].rstrip() + "…"
 
-    current = (await session.execute(sql_text("""
-        SELECT daily_scan, entry_logic, position_sizing, exit_logic,
+    # Read from trader_instrument_process when instrument_type is
+    # given; fall back to the legacy trader_process otherwise.
+    # Both tables carry the same 15 content columns.
+    _cols = """daily_scan, entry_logic, position_sizing, exit_logic,
                holding_period, research_to_rules, chart_overlay,
                no_backtest_rule, multi_strategy_blend,
                rolling, stocks_vs_options, universes, emotion_removal,
-               fundamental_metrics, trade_history_summary
-        FROM trader_process
-        WHERE org_id = :oid AND deleted_at IS NULL LIMIT 1
-    """), {"oid": org_id})).first()
+               fundamental_metrics, trade_history_summary"""
+
+    current = None
+    if instrument_type:
+        current = (await session.execute(sql_text(f"""
+            SELECT {_cols}
+            FROM trader_instrument_process
+            WHERE org_id = :oid
+              AND instrument_type = :itype
+              AND deleted_at IS NULL LIMIT 1
+        """), {"oid": org_id, "itype": instrument_type})).first()
+
+    if current is None:
+        current = (await session.execute(sql_text(f"""
+            SELECT {_cols}
+            FROM trader_process
+            WHERE org_id = :oid AND deleted_at IS NULL LIMIT 1
+        """), {"oid": org_id})).first()
+
     if not current:
         return ""
 

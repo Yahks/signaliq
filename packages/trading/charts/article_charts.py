@@ -405,3 +405,158 @@ async def render_correlation_chart(
     log.info("chart.correlation_rendered",
              symbol=symbol, points=len(corr_series), file=filename)
     return f"/static/charts/{filename}"
+
+async def render_trade_candlestick(
+    session: AsyncSession, *,
+    org_id: str,
+    symbol: str,
+    timeframe: str,
+    entry: float | None = None,
+    stop: float | None = None,
+    target: float | None = None,
+    exit_price: float | None = None,
+    entry_time=None,
+    exit_time=None,
+    force: bool = False,
+) -> str | None:
+    """Candlestick chart for the subject trade's timeframe.
+
+    Draws OHLC candles from market_history for the picked timeframe.
+    Overlays horizontal lines for entry, stop, target, and exit.
+    Highlights the entry and exit bars when entry_time / exit_time
+    fall within the visible window.
+
+    Returns a URL like "/static/charts/VRSN-1d-trade-2026-10-21.png"
+    or None on failure.
+    """
+    from sqlalchemy import text as sql_text
+    from datetime import date as _date_cls
+
+    if not symbol or not timeframe:
+        return None
+
+    today = _date_cls.today().isoformat()
+    safe = _safe_symbol(symbol)
+    filename = f"{safe}-{timeframe}-trade-{today}.png"
+    output_path = _CHART_DIR / filename
+
+    if output_path.exists() and not force:
+        return f"/static/charts/{filename}"
+
+    # Bar count per timeframe — enough to see the setup and the
+    # aftermath, not so many the candles are unreadable.
+    n_bars = {"1h": 120, "1d": 90, "1wk": 60, "1mo": 36, "1y": 10}.get(timeframe, 90)
+
+    try:
+        rows = (await session.execute(sql_text("""
+            SELECT bar_time, trade_date, open, high, low, close
+            FROM market_history
+            WHERE org_id = :oid
+              AND symbol = :sym
+              AND timeframe = :tf
+              AND deleted_at IS NULL
+              AND open IS NOT NULL
+              AND high IS NOT NULL
+              AND low IS NOT NULL
+              AND close IS NOT NULL
+            ORDER BY COALESCE(bar_time, trade_date::timestamptz) DESC
+            LIMIT :lim
+        """), {
+            "oid": org_id, "sym": symbol,
+            "tf": timeframe, "lim": n_bars,
+        })).mappings().all()
+    except Exception as exc:
+        log.warning("chart.candle_history_failed",
+                    symbol=symbol, timeframe=timeframe,
+                    error=str(exc)[:200])
+        return None
+
+    if len(rows) < 5:
+        log.warning("chart.candle_too_few",
+                    symbol=symbol, timeframe=timeframe,
+                    rows=len(rows))
+        return None
+
+    rows = list(reversed(rows))
+    times = [r.get("bar_time") or r.get("trade_date") for r in rows]
+    opens = [float(r["open"]) for r in rows]
+    highs = [float(r["high"]) for r in rows]
+    lows = [float(r["low"]) for r in rows]
+    closes = [float(r["close"]) for r in rows]
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+
+    fig, ax = plt.subplots(figsize=(10, 4.5), dpi=110)
+
+    # Draw candles. Green up, red down.
+    for k, t in enumerate(times):
+        o, h, l, c = opens[k], highs[k], lows[k], closes[k]
+        color = "#16a34a" if c >= o else "#dc2626"
+        # Wick
+        ax.plot([k, k], [l, h], color=color, linewidth=0.9)
+        # Body
+        body_low = min(o, c)
+        body_high = max(o, c)
+        height = max(body_high - body_low, (h - l) * 0.01)
+        ax.add_patch(plt.Rectangle(
+            (k - 0.3, body_low), 0.6, height,
+            facecolor=color, edgecolor=color, linewidth=0.5,
+        ))
+
+    # Overlay lines.
+    overlays = [
+        (entry, "#111827", "entry", "solid"),
+        (stop, "#dc2626", "stop", "dashed"),
+        (target, "#16a34a", "target", "dashed"),
+        (exit_price, "#2563eb", "exit", "solid"),
+    ]
+    for val, color, label, style in overlays:
+        if val is None:
+            continue
+        ax.axhline(
+            y=val, color=color, linewidth=1.1, linestyle=style,
+            label=f"{label} {val:.4g}", alpha=0.85,
+        )
+
+    # X-axis labels.
+    step = max(1, len(times) // 8)
+    tick_positions = list(range(0, len(times), step))
+    def _fmt(t):
+        if hasattr(t, "strftime"):
+            return t.strftime("%b %-d" if timeframe == "1d" else "%b %-d %H:%M")
+        return str(t)[:10]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels([_fmt(times[p]) for p in tick_positions],
+                       fontsize=8, color="#6b7280", rotation=0)
+
+    # Title, grid, spines.
+    tf_label = {"1h": "intraday", "1d": "daily",
+                "1wk": "weekly", "1mo": "monthly",
+                "1y": "yearly"}.get(timeframe, timeframe)
+    ax.set_title(
+        f"{symbol}  \u00b7  {tf_label} candles ({len(rows)} bars)",
+        fontsize=11, loc="left", pad=8, color="#111827",
+    )
+    ax.grid(True, linestyle="--", linewidth=0.5,
+            color="#e5e7eb", axis="y")
+    ax.set_axisbelow(True)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.legend(loc="best", fontsize=8, frameon=False)
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, format="png", bbox_inches="tight")
+    plt.close(fig)
+
+    log.info(
+        "chart.candle_rendered",
+        symbol=symbol, timeframe=timeframe,
+        bars=len(rows), file=filename,
+        bytes=output_path.stat().st_size,
+    )
+    return f"/static/charts/{filename}"
+

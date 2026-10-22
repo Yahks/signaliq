@@ -151,6 +151,7 @@ def _allowed_dollars(
     trades: list[dict[str, Any]],
     account_equity: float | None = None,
     performance: dict[str, Any] | None = None,
+    skeleton_text: str = "",
 ) -> set[int]:
     allowed: set[int] = set()
     for t in trades:
@@ -184,6 +185,26 @@ def _allowed_dollars(
                 pass
     allowed |= _dollars_from(analysis)
     allowed |= TOLERATED_DOLLARS
+    # Skeleton numbers: budget, actual_risk, deviation, etc.
+    # These are legitimate risk-assessment figures that the model
+    # references verbatim. Add every whole number in the skeleton
+    # to the allowed set so the article's formatted $X,XXX does
+    # not trip the fabricated-dollar check.
+    # Extract clean dollar figures from the skeleton. Skip any
+    # number with more than 4 decimal places (those are float
+    # noise, not dollar figures) and skip any number embedded
+    # inside a longer decimal like 135.76300000000.
+    if skeleton_text:
+        for m in re.finditer(
+            r"(?<![\d.])(\d{1,7}(?:\.\d{1,4})?)(?![\d.])",
+            skeleton_text,
+        ):
+            try:
+                _v = abs(int(float(m.group(1))))
+                if _v > 0:
+                    allowed.add(_v)
+            except ValueError:
+                continue
     return allowed
 
 
@@ -531,21 +552,30 @@ def _check_trade_table(
         if td is not None and hasattr(td, "year"):
             valid_dates.add((td.year, td.month, td.day))
 
-    def _find_trade(d) -> dict | None:
+    def _find_trade(d, direction: str | None = None, entry: float | None = None) -> dict | None:
+        candidates = []
         for t in trades:
             td = t.get("traded_at")
             if td is None or not hasattr(td, "year"):
                 continue
             if (td.year, td.month, td.day) == (d.year, d.month, d.day):
-                return t
-        return None
+                candidates.append(t)
+        if not candidates:
+            return None
+        if direction and entry is not None:
+            for t in candidates:
+                t_dir = (t.get("direction") or "long").lower()
+                t_entry = float(t.get("entry") or 0)
+                if t_dir == direction.lower() and abs(t_entry - entry) < 0.01:
+                    return t
+        return candidates[0]
 
     for row in rows:
         cells = [c.strip() for c in row.strip().strip("|").split("|")]
-        if len(cells) < 6:
+        if len(cells) < 7:
             reasons.append(f"trade table: malformed row: {row[:60]}")
             continue
-        date_cell, contracts_s, entry_s, stop_s, exit_s, result_s = cells[:6]
+        date_cell, direction_cell, contracts_s, entry_s, stop_s, exit_s, result_s = cells[:7]
 
         d = _parse_table_date(date_cell)
         if d is None:
@@ -580,24 +610,45 @@ def _check_trade_table(
             continue
 
         # Direction is known because the date matched.
-        t = _find_trade(d)
+        direction = direction_cell.lower()
+        t = _find_trade(d, direction=direction, entry=entry)
+        if not t:
+            reasons.append(f"trade table: no trade found matching {date_cell} {direction} at {entry}")
+            continue
         direction = (t.get("direction") or "long").lower()
 
-        # Math check. The multiplier depends on the instrument:
-        # NQ is $20/point, stocks are $1/share. Using a fixed 20
-        # would make every stock trade look like a math error.
-        _mult = _contract_multiplier(
-            t.get("instrument") or t.get("symbol")
-        )
-        if direction == "long":
-            computed = (exit_p - entry) * contracts * _mult
+        # Math check. Two cases:
+        #   1. The DB trade row has a stored `result` column.
+        #      That is the authoritative value the article was
+        #      given. Compare the table's stated result to it,
+        #      not to a recompute — recomputes drift by rounding.
+        #   2. If the stored result is missing, fall back to the
+        #      recompute from entry/exit/contracts.
+        _stored_result = t.get("result")
+        if _stored_result is not None:
+            try:
+                _stored_f = float(_stored_result)
+                if abs(_stored_f - result) > 1:
+                    reasons.append(
+                        f"trade table: stated result ${result} "
+                        f"does not match the stored result "
+                        f"${_stored_f:.2f} on {date_cell}"
+                    )
+            except (TypeError, ValueError):
+                pass
         else:
-            computed = (entry - exit_p) * contracts * _mult
-        if abs(computed - result) > 1:
-            reasons.append(
-                f"trade table: math error on {date_cell}: "
-                f"computed ${computed:.0f}, stated ${result}"
+            _mult = _contract_multiplier(
+                t.get("instrument") or t.get("symbol")
             )
+            if direction == "long":
+                computed = (exit_p - entry) * contracts * _mult
+            else:
+                computed = (entry - exit_p) * contracts * _mult
+            if abs(computed - result) > 1:
+                reasons.append(
+                    f"trade table: math error on {date_cell}: "
+                    f"computed ${computed:.0f}, stated ${result}"
+                )
 
         # Stop position check.
         if stop is not None:
@@ -807,14 +858,36 @@ def _check_atr_attribution(
         else:
             dt = (int(dm.group(1)), int(dm.group(2)), int(dm.group(3)))
 
-        trade = next(
-            (t for t in trades
-             if t.get("traded_at") and hasattr(t["traded_at"], "year")
-             and (t["traded_at"].year,
-                  t["traded_at"].month,
-                  t["traded_at"].day) == dt),
-            None,
+        # Match by (date, entry) when entry is available in the
+        # window — otherwise two same-day trades confuse the check.
+        entry_match = re.search(
+            r"entry\s+(\d+(?:\.\d+)?)",
+            window,
         )
+        _entry_in_window = (
+            float(entry_match.group(1)) if entry_match else None
+        )
+
+        candidates = [
+            t for t in trades
+            if t.get("traded_at") and hasattr(t["traded_at"], "year")
+            and (t["traded_at"].year,
+                 t["traded_at"].month,
+                 t["traded_at"].day) == dt
+        ]
+
+        trade = None
+        if _entry_in_window is not None and candidates:
+            # Match by entry price (within $0.01 tolerance).
+            trade = next(
+                (t for t in candidates
+                 if t.get("entry") is not None
+                 and abs(float(t["entry"]) - _entry_in_window) < 0.01),
+                None,
+            )
+        if trade is None and candidates:
+            # Fall back to date-only match (single trade on that date).
+            trade = candidates[0]
         if trade is None:
             continue
         trade_atr = trade.get("atr_at_entry")
@@ -848,7 +921,7 @@ def validate(
 
     # 1. Every dollar figure must be in the source material.
     allowed_d = _allowed_dollars(analysis, trades, account_equity,
-                                  performance)
+                                  performance, skeleton_text=skeleton_text)
     for n in sorted(_dollars_from(body)):
         if n not in allowed_d:
             reasons.append(f"fabricated dollar figure: ${n:,}")

@@ -754,6 +754,7 @@ async def _verify_batch(
     org_id: str,
     claims: list[str],
     payload_str: str,
+    verifier_prompt_name: str = "trading.verify",
 ) -> list[str]:
     """Verify a small batch (<=_VERIFY_BATCH_SIZE) of claims against
     the payload string. Returns the flagged claim strings."""
@@ -763,7 +764,7 @@ async def _verify_batch(
     claims_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(claims))
 
     user, _pv_verify = render_with_version(
-        "trading.verify",
+        verifier_prompt_name,
         payload_str=payload_str,
         claims_block=claims_block,
     )
@@ -775,7 +776,7 @@ async def _verify_batch(
             user=user,
             org_id=org_id,
             prompt_version_id=_pv_verify,
-            purpose="trading.verify",
+            purpose=verifier_prompt_name,
             temperature=0.0,
             max_tokens=3000,
             json_mode=False,
@@ -824,6 +825,7 @@ async def verify_post(
     org_id: str,
     post: TradingPost,
     source_payload: dict[str, Any],
+    prompt_name: str = "",
 ) -> tuple[bool, list[str]]:
     """Ask the reasoning LLM which claims in the post are NOT grounded.
 
@@ -858,11 +860,19 @@ async def verify_post(
     results = []
     skipped = 0
     for batch in batches:
+        # Route risk_management to its standalone verifier.
+        # Everything else uses the shared trading.verify.
+        if prompt_name == "trading.risk_management":
+            _vpn = "trading.verify.risk_management"
+        else:
+            _vpn = "trading.verify"
+
         r = await _verify_batch(
             session,
             org_id=org_id,
             claims=batch,
             payload_str=payload_str,
+            verifier_prompt_name=_vpn,
         )
         if r is None:
             skipped += 1
@@ -1493,6 +1503,7 @@ async def _call_llm_json_verified_impl(
     else:
         ok, unsupported = await verify_post(
             session, org_id=org_id, post=post, source_payload=source_payload,
+            prompt_name=prompt_name,
         )
     if not ok:
         log.info(

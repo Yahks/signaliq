@@ -443,9 +443,25 @@ async def ensure_trades_for(
         )
         _exit_slip = (_actual_exit - _intended_exit) * _sign
 
+        # If the bar's date is at midnight UTC, replace the time
+        # with a realistic intraday timestamp. The price series
+        # carries daily bars (00:00), but the article needs a
+        # plausible trading hour so the model doesn't write
+        # "at 12:00 AM I entered..." The market opens 14:30 UTC
+        # (9:30 AM ET) and closes 21:00 UTC (4:00 PM ET).
+        _at_ts = dates[i]
+        if _at_ts is not None and hasattr(_at_ts, "hour") and _at_ts.hour == 0 and _at_ts.minute == 0:
+            import random as _rand
+            _h = _rand.randint(14, 20)
+            _m = _rand.randint(0, 59)
+            try:
+                _at_ts = _at_ts.replace(hour=_h, minute=_m, second=0)
+            except Exception:
+                pass
+
         _bindings = {
             "oid": org_id,
-            "at": dates[i],
+            "at": _at_ts,
             "inst": symbol,
             "dir": direction,
             "setup": setup,

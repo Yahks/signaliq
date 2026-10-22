@@ -95,7 +95,8 @@ async def generate(
         coord["dimension_keywords"], post_index=tier_index,
     )
     process_excerpt = await get_process_excerpt(
-        session, org_id, coord["dimension_id"],
+        session, org_id, coord["dimension_id"], instrument_type="stock",
+    
     )
 
     # Prepend the coordinate to the user prompt so the

@@ -369,7 +369,7 @@ SUBBLOCK_DIMENSIONS: dict[str, tuple[str, ...]] = {
     "trading_psychology":    ("D8", "D13"),         # human overlay, emotion removal
     "trading_tools":         tuple(f"D{i}" for i in range(1, 15)),
     # practitioner-process — the specific sections each topic reads
-    "risk_management":       ("D1",),               # daily_scan — locked to D1-A3
+    "risk_management":       ("D1", "D2", "D7", "D8"),   # daily_scan, entry_logic, risk_behavior, drawdown
     "screener_picks":        ("D1",),               # daily_scan
     "technical_indicators":  ("D2", "D8"),          # entry_logic, chart_overlay
     "investment_strategies": ("D7",),               # multi_strategy_blend

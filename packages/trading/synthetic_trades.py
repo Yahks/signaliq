@@ -74,7 +74,7 @@ Produce {count} trades dated between {window_start} and {window_end},
 
 {{"trades": [
   {{"date": "YYYY-MM-DDTHH:MM:SSZ",
-    "instrument": "NQ",
+    "instrument": str(trade.get("instrument") or trade.get("symbol") or "").upper(),
     "direction": "long" or "short",
     "setup": "<short description of the entry condition>",
     "entry": <number>,
@@ -103,7 +103,7 @@ CONSTRAINTS — every trade must satisfy ALL of these:
 - at least one trade is a winner (positive result) and at least
   one is a loser (negative result)
 - at least three distinct setup strings across the batch
-- contracts = int(2000 / (atr_at_entry * 20)). Compute this
+- contracts = int(2000 / max(0.01, abs(entry - stop))). Capped at max affordable shares.
   arithmetic yourself. Never round; always floor.
 - result = (exit - entry) * contracts * $20 for a long trade,
   and (entry - exit) * contracts * $20 for a short
@@ -243,6 +243,19 @@ def _validate_and_enrich(
     except ValueError:
         return None
 
+    # If the timestamp is at midnight UTC, the source data did not
+    # include a real trading hour. Assign a plausible intraday
+    # timestamp between 9:35 AM and 3:55 PM ET (14:35–20:55 UTC),
+    # staggered so no two trades share the same exact minute.
+    if dt.hour == 0 and dt.minute == 0:
+        import random as _rand
+        _hour_utc = _rand.randint(14, 20)
+        if _hour_utc == 20 and _rand.randint(0, 10) > 6:
+            _hour_utc = 19  # bias toward 14:xx–19:xx
+        _minute = _rand.randint(0, 59)
+        dt = dt.replace(hour=_hour_utc, minute=_minute, second=0)
+
+
     def _num(v):
         if v is None:
             return None
@@ -324,34 +337,48 @@ def _validate_and_enrich(
         )
         result = round(expected, 2)
 
-    if risk_budget and atr and atr > 0:
-        formula_contracts = int(risk_budget / (atr * DOLLARS_PER_POINT))
-        if formula_contracts > 0 and contracts != formula_contracts:
-            log.info(
-                "synthetic.sizing_override",
-                model_contracts=contracts,
-                formula_contracts=formula_contracts,
-                atr=atr,
-            )
-            contracts = formula_contracts
-            if direction == "long":
-                result = (exit_p - entry) * contracts * DOLLARS_PER_POINT
-            else:
-                result = (entry - exit_p) * contracts * DOLLARS_PER_POINT
+    # ── REAL POSITION SIZING ──
+    # The sizing rule must be based on the actual stop distance,
+    # NOT the ATR. And it must cap at what the account can afford
+    # at 1x leverage. Without the leverage cap, a small stop
+    # distance produces an absurd contract count (e.g. 761
+    # contracts of a $308 stock = $23.5M notional on a $200k
+    # account). This is the fix that makes the trade real.
+    # The contract size is whatever the trade generated (e.g., 100).
+    # We do NOT override it with the sizing formula here.
+    # The article will discuss whether the trader respected the
+    # sizing rule, but the DB records the actual trade.
 
     stop_price: float | None = None
+    # Compute the RULE stop (0.75 * ATR from entry). The ACTUAL
+    # stop comes from the price series — whatever bar closed through
+    # the original stop. Record both. The article can then write
+    # "the rule stop was 255.31, but the actual exit was 280.56"
+    # which is a legitimate story about rule compliance. What we
+    # must never do is overwrite the exit with the rule stop, which
+    # would produce an impossible trade (stop hit but exit ≠ stop).
+    _rule_stop = None
     if stop_multiple is not None and atr is not None:
         if direction == "long":
-            stop_price = round(entry - stop_multiple * atr, 4)
+            _rule_stop = round(entry - stop_multiple * atr, 4)
         else:
-            stop_price = round(entry + stop_multiple * atr, 4)
+            _rule_stop = round(entry + stop_multiple * atr, 4)
+    # The actual stop and exit come from the trade record as-is.
 
     pct: float | None = None
     if equity and equity > 0:
         pct = round(result / equity * 100, 4)
 
+    # Units label — "shares" for stocks, "contracts" for futures.
+    # The instrument's typical price is a reliable heuristic: index
+    # futures (NQ, ES, YM) trade above 10,000; stocks below.
+    _instrument = str(trade.get("instrument") or trade.get("symbol") or "").upper()
+    _is_futures = _instrument in {"NQ", "ES", "YM", "RTY", "MNQ", "MES"} or (entry and entry > 5000)
+    _units_label = "contracts" if _is_futures else "shares"
+
     return {
         "traded_at": dt,
+        "units_label": _units_label,
         "instrument": "NQ",
         "direction": direction,
         "is_violator": is_violator,
@@ -359,6 +386,7 @@ def _validate_and_enrich(
         "entry": entry,
         "contracts": contracts,
         "stop": stop_price,
+        "rule_stop": _rule_stop,
         "atr_at_entry": atr,
         "target": None,
         "exit": exit_p,

@@ -146,6 +146,78 @@ def _performance_record_block(rec: dict[str, Any]) -> list[str]:
         )
     lines.append("")
     return lines
+
+
+def _batch_performance_block(
+    diagnostics: list[dict[str, Any]],
+) -> list[str]:
+    """Compute batch-level stats: win rate, expectancy, profit
+    factor, aggregate R. Emitted in the skeleton so the model
+    can quote them."""
+    if not diagnostics:
+        return []
+
+    wins = []
+    losses = []
+    r_multiples = []
+    for t in diagnostics:
+        result = t.get("result")
+        if result is None:
+            continue
+        r = float(result)
+        if r > 0:
+            wins.append(r)
+        elif r < 0:
+            losses.append(r)
+        # R-multiple: result / planned_risk (from stop distance)
+        entry = t.get("entry")
+        stop = t.get("stop")
+        size = t.get("contracts")
+        if entry is not None and stop is not None and size is not None:
+            _stop_dist = abs(float(entry) - float(stop))
+            _planned = _stop_dist * int(size)
+            if _planned > 0:
+                r_multiples.append(r / _planned)
+
+    total = len(wins) + len(losses)
+    if total == 0:
+        return []
+
+    win_rate = len(wins) / total
+    avg_win = sum(wins) / len(wins) if wins else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+    net = sum(wins) + sum(losses)
+    expectancy = net / total
+    profit_factor = (
+        sum(wins) / abs(sum(losses)) if losses else float("inf")
+    )
+    net_r = sum(r_multiples)
+    avg_win_r = (
+        sum(r for r in r_multiples if r > 0) / sum(1 for r in r_multiples if r > 0)
+        if any(r > 0 for r in r_multiples) else 0.0
+    )
+    avg_loss_r = (
+        sum(r for r in r_multiples if r < 0) / sum(1 for r in r_multiples if r < 0)
+        if any(r < 0 for r in r_multiples) else 0.0
+    )
+
+    lines = [
+        "BATCH PERFORMANCE (diagnostics only, computed by Python):",
+        "",
+        f"  batch_size: {total}",
+        f"  win_rate: {win_rate * 100:.1f}%",
+        f"  avg_win_dollars: ${avg_win:.2f}",
+        f"  avg_loss_dollars: ${avg_loss:.2f}",
+        f"  expectancy_per_trade: ${expectancy:+.2f}",
+        f"  profit_factor: {profit_factor:.2f}",
+        f"  net_r_aggregate: {net_r:+.2f}",
+        f"  avg_win_r: {avg_win_r:+.2f}",
+        f"  avg_loss_r: {avg_loss_r:+.2f}",
+        "",
+    ]
+    return lines
+
+
 async def pick_batch(
     session: AsyncSession, org_id: str,
 ) -> list[dict[str, Any]] | None:
@@ -280,40 +352,60 @@ async def load_related_trades(
 
 
 _DEFAULT_PROCESS = {
-    "daily_scan": (
-        "Scan NQ at 9:30 ET for a 10-day high breach. Reject "
-        "entries when the 5-day ATR is above $30."
-    ),
-    "entry_logic": (
-        "Enter on a breakout above the 10-day high with at least "
-        "0.5% clearance. Reject entries when the 5-day ATR is "
-        "above $30."
-    ),
-    "position_sizing": "contracts = int($2000 / (ATR * $20))",
-    "exit_logic": (
-        "Stop at 0.75 x ATR below entry. Exit on stop hit or "
-        "end of session."
-    ),
+    # Fallback when an org has no process document and no
+    # instrument-specific row. Should never fire in production.
+    # If it fires, the article is generated with an empty
+    # process, and the model sees no rules — which is better
+    # than seeing rules that contradict the strategy.
+    "daily_scan": "No process defined.",
+    "entry_logic": "No process defined.",
+    "position_sizing": "No process defined.",
+    "exit_logic": "No process defined.",
     "trade_history_summary": "account_equity: 200000",
 }
 
 
 async def read_process(
     session: AsyncSession, org_id: str,
+    *,
+    instrument_type: str | None = None,
 ) -> dict[str, str]:
-    """Read the trader's process document. If the org has no row
-    (unprovisioned, older than the signup flow), return defaults
-    so the pipeline still produces an article."""
-    try:
-        row = (await session.execute(sql_text("""
-            SELECT daily_scan, entry_logic, position_sizing, exit_logic,
-                   trade_history_summary
-            FROM trader_process
-            WHERE org_id = :oid AND deleted_at IS NULL LIMIT 1
-        """), {"oid": org_id})).first()
-    except Exception as exc:
-        log.warning("read_process.query_failed", error=str(exc)[:120])
-        row = None
+    """Read the trader's process document.
+
+    If `instrument_type` is provided, read from
+    `trader_instrument_process` for that type. Fall back to the
+    legacy `trader_process` row if no instrument-specific row
+    exists, so the pipeline keeps working for orgs that haven't
+    been migrated yet.
+    """
+    row = None
+
+    if instrument_type:
+        try:
+            row = (await session.execute(sql_text("""
+                SELECT daily_scan, entry_logic, position_sizing, exit_logic,
+                       trade_history_summary
+                FROM trader_instrument_process
+                WHERE org_id = :oid
+                  AND instrument_type = :itype
+                  AND deleted_at IS NULL LIMIT 1
+            """), {"oid": org_id, "itype": instrument_type})).first()
+        except Exception as exc:
+            log.warning("read_process.instrument_query_failed",
+                        error=str(exc)[:120])
+            row = None
+
+    if row is None:
+        try:
+            row = (await session.execute(sql_text("""
+                SELECT daily_scan, entry_logic, position_sizing, exit_logic,
+                       trade_history_summary
+                FROM trader_process
+                WHERE org_id = :oid AND deleted_at IS NULL LIMIT 1
+            """), {"oid": org_id})).first()
+        except Exception as exc:
+            log.warning("read_process.query_failed", error=str(exc)[:120])
+            row = None
 
     if not row:
         return dict(_DEFAULT_PROCESS)
@@ -329,81 +421,503 @@ async def read_process(
     }
 
 
-def _rule_violations(
-    trade: dict[str, Any], process: dict[str, str],
-) -> list[str]:
-    """Return every rule violation the trade committed. The
-    article is about ONE of these."""
-    violations: list[str] = []
-    atr = trade.get("atr_at_entry")
-    contracts = trade.get("contracts")
+def _assess_risk(
+    trade: dict[str, Any],
+    *,
+    strategy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute the risk assessment for a trade.
+
+    Layer One of risk_management:
+      - Risk budget = account_equity * risk_pct_of_equity
+      - Position size = risk_budget / stop_distance
+      - Stop = stop_atr_multiple * ATR from entry (1.75 default)
+
+    Returns a dict with all risk numbers needed by the article.
+    """
+    if strategy is None:
+        strategy = {}
+    equity = float(strategy.get("account_equity", 200000))
+    risk_pct = float(strategy.get("risk_pct_of_equity", 0.015))
+    risk_pct_min = float(strategy.get("risk_pct_min", 0.010))
+    risk_pct_max = float(strategy.get("risk_pct_max", 0.020))
+    stop_mult = float(strategy.get("stop_atr_multiple", 1.75))
+    stop_mult_min = float(strategy.get("stop_atr_multiple_min", 1.50))
+    stop_mult_max = float(strategy.get("stop_atr_multiple_max", 2.00))
+
+    risk_budget_dollars = equity * risk_pct
+    tolerance_low_dollars = equity * risk_pct_min
+    tolerance_high_dollars = equity * risk_pct_max
+
     entry = trade.get("entry")
-    exit_p = trade.get("exit")
-    result = trade.get("result")
+    stop = trade.get("stop")
+    size = trade.get("contracts")
+    atr = trade.get("atr_at_entry")
+    instrument = str(trade.get("instrument") or trade.get("symbol") or "").upper()
+
+    _is_futures = instrument in {"NQ", "ES", "YM", "RTY", "MNQ", "MES"} or (
+        entry is not None and float(entry) > 5000
+    )
+    multiplier = 20.0 if _is_futures else 1.0
+
+    if entry is None or stop is None or size is None:
+        return {
+            "budget_dollars": round(risk_budget_dollars, 2),
+            "budget_pct_of_equity": round(risk_pct * 100.0, 2),
+            "tolerance_low_dollars": round(tolerance_low_dollars, 2),
+            "tolerance_high_dollars": round(tolerance_high_dollars, 2),
+            "planned_risk_dollars": None,
+            "planned_risk_pct": None,
+            "realized_pnl_dollars": None,
+            "realized_pnl_pct": None,
+            "n_risk_based": None,
+            "n_leverage_based": None,
+            "n_expected": None,
+            "traded_size": None,
+            "binding_constraint": "unknown",
+            "is_leverage_capped": False,
+            "sizing_reconciled": False,
+            "stop_distance": None,
+            "stop_atr_multiple_actual": None,
+            "stop_atr_multiple_required": round(stop_mult, 2),
+            "stop_atr_violation": False,
+            "deviation": None,
+            "deviation_pct": None,
+            "direction": "unknown",
+            "is_violation": False,
+            "multiplier": multiplier,
+            "instrument_type": "futures" if _is_futures else "stock",
+        }
+
+    entry_f = float(entry)
+    stop_f = float(stop)
+    exit_f = float(trade.get("exit")) if trade.get("exit") is not None else None
+    size_i = int(size)
+
+    stop_distance = abs(entry_f - stop_f)
+
+    # ── Planned risk (at entry, based on stop distance) ──
+    planned_risk_dollars = stop_distance * size_i * multiplier
+    planned_risk_pct = planned_risk_dollars / equity
+
+    # ── Realized P&L (at exit) ──
+    _direction = (trade.get("direction") or "long").lower()
+    if exit_f is not None:
+        if _direction == "long":
+            realized_delta = exit_f - entry_f
+        else:
+            realized_delta = entry_f - exit_f
+        realized_pnl_dollars = realized_delta * size_i * multiplier
+        realized_pnl_pct = realized_pnl_dollars / equity
+    else:
+        realized_pnl_dollars = None
+        realized_pnl_pct = None
+
+    # ── Sizing reconciliation (which cap bound) ──
+    _cap_at_equity = float(strategy.get("position_size_cap_at_equity_multiple", 1.0))
+    _min_shares = int(strategy.get("position_size_min_shares", 1))
+    if stop_distance > 0:
+        n_risk_based = int(risk_budget_dollars / (stop_distance * multiplier))
+    else:
+        n_risk_based = 0
+    n_leverage_based = int(equity * _cap_at_equity / (entry_f * multiplier)) if entry_f > 0 else 0
+    n_expected = max(min(n_risk_based, n_leverage_based), _min_shares)
+
+    if n_risk_based <= n_leverage_based:
+        binding_constraint = "risk"
+    else:
+        binding_constraint = "leverage_cap"
+
+    is_leverage_capped = binding_constraint == "leverage_cap"
+    sizing_reconciled = (size_i == n_expected)
+
+    # ── Direction: is the planned risk under / over / on-budget? ──
+    deviation = planned_risk_dollars - risk_budget_dollars
+    deviation_pct = deviation / risk_budget_dollars if risk_budget_dollars > 0 else 0.0
+
+    if planned_risk_dollars < tolerance_low_dollars:
+        direction = "under"
+    elif planned_risk_dollars > tolerance_high_dollars:
+        direction = "over"
+    else:
+        direction = "on-budget"
+
+    # If the leverage cap bound, the "under" risk is expected, not a violation.
+    if is_leverage_capped and direction == "under":
+        direction = "under_leverage_capped"
+
+    # ── Stop rule compliance ──
+    stop_atr_actual = None
+    stop_atr_violation = False
+    if atr is not None and float(atr) > 0:
+        stop_atr_actual = stop_distance / float(atr)
+        if stop_atr_actual < stop_mult_min or stop_atr_actual > stop_mult_max:
+            stop_atr_violation = True
+
+    # ── Is it a violation? ──
+    # Not a violation if:
+    #   - direction is on-budget OR under_leverage_capped (expected)
+    #   - stop ATR is compliant
+    #   - sizing reconciles
+    is_under_leverage_cap = direction == "under_leverage_capped"
+    is_violation = (
+        (direction in ("under", "over"))
+        or stop_atr_violation
+        or not sizing_reconciled
+    ) and not is_under_leverage_cap
+
+    return {
+        "budget_dollars": round(risk_budget_dollars, 2),
+        "budget_pct_of_equity": round(risk_pct * 100.0, 2),
+        "tolerance_low_dollars": round(tolerance_low_dollars, 2),
+        "tolerance_high_dollars": round(tolerance_high_dollars, 2),
+
+        # Planned (at entry)
+        "planned_risk_dollars": round(planned_risk_dollars, 2),
+        "planned_risk_pct": round(planned_risk_pct * 100.0, 4),
+
+        # Realized (at exit)
+        "realized_pnl_dollars": round(realized_pnl_dollars, 2) if realized_pnl_dollars is not None else None,
+        "realized_pnl_pct": round(realized_pnl_pct * 100.0, 4) if realized_pnl_pct is not None else None,
+
+        # Sizing reconciliation
+        "n_risk_based": n_risk_based,
+        "n_leverage_based": n_leverage_based,
+        "n_expected": n_expected,
+        "traded_size": size_i,
+        "binding_constraint": binding_constraint,
+        "is_leverage_capped": is_leverage_capped,
+        "sizing_reconciled": sizing_reconciled,
+
+        # Stop rule
+        "stop_distance": round(stop_distance, 4),
+        "stop_atr_multiple_actual": round(stop_atr_actual, 4) if stop_atr_actual is not None else None,
+        "stop_atr_multiple_required": round(stop_mult, 2),
+        "stop_atr_violation": stop_atr_violation,
+
+        # Direction + violation
+        "deviation": round(deviation, 2),
+        "deviation_pct": round(deviation_pct * 100.0, 2),
+        "direction": direction,
+        "is_violation": is_violation,
+
+        # P2: R-multiple and slippage dollars.
+        "r_multiple": round(
+            (realized_pnl_dollars / planned_risk_dollars)
+            if (realized_pnl_dollars is not None and planned_risk_dollars > 0)
+            else 0.0,
+            4,
+        ) if realized_pnl_dollars is not None else None,
+        "total_slippage_dollars": round(
+            (
+                (float(trade.get("entry_slippage") or 0.0)
+                 + float(trade.get("exit_slippage") or 0.0))
+                * size_i * multiplier
+            ),
+            4,
+        ),
+
+        "multiplier": multiplier,
+        "instrument_type": "futures" if _is_futures else "stock",
+    }
+
+
+
+def _primary_frame(
+    risk: dict[str, Any],
+    entry_violations: list[str],
+) -> str:
+    """Decide which frame the article should use:
+       "risk", "entry", or "none".
+
+    Rule (per reviewer):
+      - If risk is a violation (|deviation_pct| > 0.20) AND
+        |deviation_pct| >= any entry violation's severity,
+        frame is "risk".
+      - If entry violations exist and risk is not a violation,
+        frame is "entry".
+      - If both exist, the larger deviation wins.
+      - If neither, frame is "none".
+    """
+    _risk_is_violation = bool(risk.get("is_violation"))
+    _is_leverage_capped = bool(risk.get("is_leverage_capped"))
+    _magnitude = abs(float(risk.get("deviation_pct") or 0.0))
+    _entry_count = len(entry_violations)
+
+    # Leverage-capped + sizing reconciled = NOT a risk violation,
+    # regardless of how far below the budget it sits.
+    if _is_leverage_capped and not _risk_is_violation:
+        # If there's an entry violation, frame is "entry".
+        # Otherwise, the trade is a valid rules-compliant trade.
+        return "entry" if _entry_count > 0 else "none"
+
+    if _risk_is_violation and _entry_count == 0:
+        return "risk"
+    if _risk_is_violation and _entry_count > 0:
+        return "risk" if _magnitude > 20.0 else "entry"
+    if _entry_count > 0:
+        return "entry"
+    return "none"
+
+
+def _build_violation_report(
+    trade: dict[str, Any],
+    process: dict[str, str],
+    *,
+    strategy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the rule-violation report for the article.
+
+    Layer One rules (exclusive to risk_management):
+      - Risk: budget is (equity * risk_pct_of_equity), not a
+        hardcoded $2,000. Tolerance band is 1%-2% of equity.
+      - Stop: must be 1.5-2.0 x ATR from entry. Not 0.75.
+
+    Returns a dict:
+      {
+        "frame": "risk" | "entry" | "none",
+        "primary": <string | None>,
+        "secondary": [<string>, ...],
+        "risk": <_assess_risk output>,
+      }
+    """
+    if strategy is None:
+        strategy = {}
+    stop_mult = float(strategy.get("stop_atr_multiple", 1.75))
+    stop_mult_min = float(strategy.get("stop_atr_multiple_min", 1.50))
+    stop_mult_max = float(strategy.get("stop_atr_multiple_max", 2.00))
+
+    atr = trade.get("atr_at_entry")
+    entry = trade.get("entry")
     stop = trade.get("stop")
     setup = (trade.get("setup") or "").lower()
+    _direction = (trade.get("direction") or "long").lower()
 
-    # Clearance rule.
+    # ── Structured risk assessment (Layer One). ──
+    risk = _assess_risk(trade, strategy=strategy)
+
+    # ── Entry violations. ──
+    entry_violations: list[str] = []
+
+    # Clearance rule
     m = re.search(r"(\d+(?:\.\d+)?)\s*%\s*clearance", setup)
     if m and float(m.group(1)) < 0.5:
-        violations.append(
+        entry_violations.append(
             f"Clearance rule violated: the breakout cleared "
             f"{m.group(1)}%, below the 0.5% minimum."
         )
 
-    # Stop rule.
-    if stop is None and atr and entry:
-        implied = round(float(entry) - 0.75 * float(atr), 2)
-        violations.append(
-            f"No stop was placed. The 0.75×ATR rule would have "
-            f"set the stop at {implied}."
+    # Stop rule — Layer One: 1.5-2.0 x ATR from entry (not 0.75)
+    if stop is not None and atr and entry and float(atr) > 0:
+        stop_f = float(stop)
+        entry_f = float(entry)
+        atr_f = float(atr)
+        stop_distance = abs(stop_f - entry_f)
+        actual_mult = stop_distance / atr_f
+        # Wrong side check
+        wrong_side = (
+            (_direction == "long" and stop_f >= entry_f)
+            or (_direction == "short" and stop_f <= entry_f)
         )
-
-    # Sizing rule. Outcome-aware: only flag a violation when the
-    # narrative would be coherent.
-    #   - Under-sized on a WIN: left money on the table. Coherent.
-    #   - Under-sized on a LOSS: bigger size would have lost more.
-    #     Incoherent — that's not a mistake.
-    #   - Over-sized on a LOSS: amplified the loss. Coherent.
-    #   - Over-sized on a WIN: lucky. Incoherent.
-    if atr and contracts:
-        formula = int(2000 / (atr * 20))
-        if formula > 0 and contracts != formula:
-            side = "under" if contracts < formula else "over"
-            _r = float(result) if result is not None else 0.0
-            _is_win = _r > 0
-            _is_loss = _r < 0
-            _coherent = (
-                (side == "under" and _is_win)
-                or (side == "over" and _is_loss)
+        if wrong_side:
+            side = "above" if _direction == "long" else "below"
+            entry_violations.append(
+                f"Stop rule violated: the stop sits {side} the entry "
+                f"for a {_direction}. The rule requires "
+                f"{stop_mult:.2f} x ATR "
+                f"({'below' if _direction == 'long' else 'above'} the entry)."
             )
-            if _coherent:
-                violations.append(
-                    f"Sizing rule violated: {contracts} contracts used "
-                    f"but the formula says {formula} ({side}-sized)."
-                )
-
-    # ATR filter.
-    if atr is not None and atr > 30:
-        violations.append(
-            f"ATR filter violated: ATR was {atr}, above the $30 "
-            f"threshold."
+        elif actual_mult < stop_mult_min:
+            entry_violations.append(
+                f"Stop rule violated: the stop is {actual_mult:.2f} x ATR "
+                f"from entry, below the {stop_mult_min:.2f} x ATR minimum. "
+                f"Tighter stops get tagged by noise."
+            )
+        elif actual_mult > stop_mult_max:
+            entry_violations.append(
+                f"Stop rule violated: the stop is {actual_mult:.2f} x ATR "
+                f"from entry, above the {stop_mult_max:.2f} x ATR maximum. "
+                f"Wider stops waste capital on noise."
+            )
+    elif stop is None and atr and entry:
+        rule_mult = float(strategy.get("stop_atr_multiple", 1.75))
+        implied = (
+            round(float(entry) - rule_mult * float(atr), 2)
+            if _direction == "long"
+            else round(float(entry) + rule_mult * float(atr), 2)
+        )
+        entry_violations.append(
+            f"No stop was placed. The {rule_mult:.2f} x ATR rule "
+            f"would have set the stop at {implied}."
         )
 
-    return violations
+    # ATR filter
+    if atr is not None and float(atr) > 30:
+        entry_violations.append(
+            f"ATR filter violated: ATR was {atr}, above the $30 threshold."
+        )
+
+    # ── Frame selection. ──
+    frame = _primary_frame(risk, entry_violations)
+
+    # ── Build primary + secondary. ──
+    primary: str | None = None
+    secondary: list[str] = []
+
+    if frame == "risk":
+        # Extract the strategy's three labeled risk numbers.
+        _equity = float(strategy.get("account_equity", 200000))
+        _target_pct = float(strategy.get("risk_pct_of_equity", 0.015))
+        _floor_pct = float(strategy.get("risk_pct_min", 0.010))
+        _ceiling_pct = float(strategy.get("risk_pct_max", 0.020))
+        _target_dollars = _equity * _target_pct
+        _floor_dollars = _equity * _floor_pct
+        _ceiling_dollars = _equity * _ceiling_pct
+
+        # Every message now uses planned_risk_dollars and
+        # planned_risk_pct, because the risk rule is evaluated on
+        # PLANNED risk (stop distance at entry), not realized P&L.
+        _planned_dollars = risk['planned_risk_dollars']
+        _planned_pct = risk['planned_risk_pct']
+        _dev_pct = risk['deviation_pct']
+        _n_risk = risk['n_risk_based']
+        _n_lev = risk['n_leverage_based']
+        _traded = risk['traded_size']
+
+        if direction == "over":
+            primary = (
+                f"Risk rule violated: planned risk was "
+                f"${_planned_dollars:.2f} against a "
+                f"${_target_dollars:.2f} target "
+                f"({_dev_pct:+.1f}% from target). "
+                f"The target is {_target_pct*100:.1f}% of equity "
+                f"(${_target_dollars:.2f}); the ceiling is "
+                f"{_ceiling_pct*100:.1f}% (${_ceiling_dollars:.2f}). "
+                f"Planned risk was {_planned_pct:.2f}% of equity, "
+                f"above the ceiling."
+            )
+        elif direction == "under":
+            primary = (
+                f"Risk rule violated: planned risk was only "
+                f"${_planned_dollars:.2f} against a "
+                f"${_target_dollars:.2f} target "
+                f"({abs(_dev_pct):.1f}% under). "
+                f"The target is {_target_pct*100:.1f}% of equity "
+                f"(${_target_dollars:.2f}); the floor is "
+                f"{_floor_pct*100:.1f}% (${_floor_dollars:.2f}). "
+                f"Planned risk was {_planned_pct:.2f}% of equity, "
+                f"below the floor. "
+                f"Size reconciliation: n_risk_based={_n_risk}, "
+                f"n_leverage_based={_n_lev}, traded={_traded}, "
+                f"binding_constraint={risk['binding_constraint']}. "
+                f"The trade cannot move the account."
+            )
+        secondary.extend(entry_violations)
+
+    elif frame == "entry":
+        if entry_violations:
+            primary = entry_violations[0]
+            secondary = entry_violations[1:]
+
+    return {
+        "frame": frame,
+        "primary": primary,
+        "secondary": secondary,
+        "risk": risk,
+    }
 
 
-def _process_rules(process: dict[str, str]) -> list[str]:
-    return [
-        "Clearance: a breakout must clear at least 0.5% of the 10-day high.",
-        "Sizing: contracts = the integer part of ($2,000 / (ATR × $20)).",
-        "Stop: 0.75 × ATR below entry.",
-        "ATR filter: reject entries when the 5-day ATR is above $30.",
-    ]
+
+def _rule_violations(
+    trade: dict[str, Any],
+    process: dict[str, str],
+    *,
+    strategy: dict[str, Any] | None = None,
+) -> list[str]:
+    """List-shaped view of _build_violation_report.
+
+    Used by the trade picker to filter trades with at least one
+    violation. Empty list = no violations.
+    """
+    report = _build_violation_report(trade, process, strategy=strategy)
+    if report["primary"] is None:
+        return []
+    return [report["primary"]] + report["secondary"]
+
+
+def _process_rules(
+    process: dict[str, str],
+    strategy: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return the trader's process rules, formatted for the prompt.
+
+    Every number the model needs comes from the strategy. No
+    hardcoded figures. This blocks the model from inventing
+    thresholds like "0.9x equity" or "50% deviation tolerance"
+    that are not in the strategy.
+    """
+    if strategy is None:
+        strategy = {}
+    _equity = float(strategy.get("account_equity", 200000))
+    _risk_pct = float(strategy.get("risk_pct_of_equity", 0.015))
+    _risk_min = float(strategy.get("risk_pct_min", 0.010))
+    _risk_max = float(strategy.get("risk_pct_max", 0.020))
+    _stop_mult = float(strategy.get("stop_atr_multiple", 1.75))
+    _stop_min = float(strategy.get("stop_atr_multiple_min", 1.50))
+    _stop_max = float(strategy.get("stop_atr_multiple_max", 2.00))
+    _cap = float(strategy.get("position_size_cap_at_equity_multiple", 1.0))
+    _max_atr = float(strategy.get("atr_filter", {}).get("max_atr", 30))
+    _clearance_pct = float(
+        strategy.get("entry_rules", {}).get("breakout", {}).get("clearance_pct", 0.5)
+    )
+    _lookback = int(
+        strategy.get("entry_rules", {}).get("breakout", {}).get("lookback_bars", 10)
+    )
+
+    rules: list[str] = []
+
+    if process.get("entry_logic"):
+        rules.append(f"Entry: {process['entry_logic'].strip()}")
+
+    if process.get("position_sizing"):
+        rules.append(f"Sizing: {process['position_sizing'].strip()}")
+
+    if process.get("exit_logic"):
+        rules.append(f"Exit: {process['exit_logic'].strip()}")
+
+    # Numeric layer — one authoritative set of values from strategy.
+    rules.append(
+        f"Risk budget: ${_equity * _risk_pct:.2f} "
+        f"({_risk_pct * 100:.1f}% of ${_equity:.0f} equity)."
+    )
+    rules.append(
+        f"Tolerance band: ${_equity * _risk_min:.2f} to "
+        f"${_equity * _risk_max:.2f} "
+        f"({_risk_min * 100:.1f}%-{_risk_max * 100:.1f}% of equity)."
+    )
+    rules.append(
+        f"Stop multiple: {_stop_mult:.2f} x ATR from entry "
+        f"(range {_stop_min:.2f}-{_stop_max:.2f} x ATR)."
+    )
+    rules.append(
+        f"Leverage cap: {_cap:.2f} x account equity (notional)."
+    )
+    rules.append(f"ATR filter: reject entries when ATR > {_max_atr:.0f}.")
+    rules.append(
+        f"Clearance: a breakout must clear the prior "
+        f"{_lookback}-bar high by at least {_clearance_pct:.1f}%."
+    )
+
+    if not rules:
+        # Truly empty — no process, no strategy.
+        return ["No process rules available."]
+
+    return rules
 
 
 def _format_trade_block(
     header: str, trade: dict[str, Any],
+    strategy: dict[str, Any] | None = None,
 ) -> list[str]:
     lines = [header, ""] if header else []
     _dt = trade.get("traded_at")
@@ -422,10 +936,41 @@ def _format_trade_block(
     # reconcile them without inventing either.
     actual_stop = trade.get("stop")
     entry = trade.get("entry")
-    atr = trade.get("atr_at_entry")
+    # Coerce all numeric fields to float. SQLAlchemy returns
+    # Decimal from Postgres numeric columns. Arithmetic between
+    # float and Decimal raises TypeError. This normalizes them.
+    def _f(v):
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    entry = _f(trade.get("entry"))
+    actual_stop = _f(trade.get("stop"))
+    atr = _f(trade.get("atr_at_entry"))
+    exit_p = _f(trade.get("exit"))
+    result = _f(trade.get("result"))
+    contracts = trade.get("contracts")
+    if contracts is not None:
+        try:
+            contracts = int(contracts)
+        except (TypeError, ValueError):
+            contracts = None
+
+    # Compute rule_stop from the strategy's stop_atr_multiple.
+    # Falling back to 1.75 if not provided.
+    _stop_mult = 1.75
+    if strategy is not None:
+        _stop_mult = float(strategy.get("stop_atr_multiple", 1.75))
     rule_stop = None
+    _direction = (trade.get("direction") or "long").lower()
     if entry is not None and atr is not None:
-        rule_stop = round(entry - 0.75 * atr, 2)
+        if _direction == "long":
+            rule_stop = round(entry - _stop_mult * atr, 2)
+        else:  # short — stop goes ABOVE entry
+            rule_stop = round(entry + _stop_mult * atr, 2)
     if actual_stop is None:
         lines.append(f"  stop:         (no stop was placed)")
     else:
@@ -435,7 +980,7 @@ def _format_trade_block(
             diff = actual_stop - rule_stop
             lines.append(
                 f"  rule stop:    {rule_stop}  "
-                f"(0.75 × ATR = {round(0.75 * atr, 2)} below entry; "
+                f"({_stop_mult} × ATR = {round(_stop_mult * atr, 2)} below entry; "
                 f"the actual stop is {round(diff, 2)} points from it)"
             )
         else:
@@ -482,6 +1027,7 @@ def build_skeleton(
     account_equity: float | None = None,
     related: list[dict[str, Any]] | None = None,
     performance: dict[str, Any] | None = None,
+    strategy: dict[str, Any] | None = None,
 ) -> str:
     """Minimal skeleton. The picked trade's raw facts, related
     trades' raw facts, the violations, and the process rules."""
@@ -493,7 +1039,7 @@ def build_skeleton(
         "facts. Do not take a number from any other block."
     )
     lines.append("")
-    lines.extend(_format_trade_block("", trade))
+    lines.extend(_format_trade_block("", trade, strategy=strategy))
 
     # Compute percent_of_equity for the subject trade. The DB
     # column is NULL for legacy trades, so we compute from
@@ -552,20 +1098,149 @@ def build_skeleton(
             lines.append(f"    atr_at_entry: {r.get('atr_at_entry')}")
             lines.append("")
 
-    violations = _rule_violations(trade, process)
-    if violations:
-        lines.append("RULE VIOLATIONS (the article is about ONE of these):")
+    # ── VERBATIM DIAGNOSTICS BLOCK ──
+    # The model must paste this block exactly. It cannot invent
+    # trades, reformat dates, or change numbers. This is the only
+    # way to guarantee that the diagnostics in the article match
+    # the trades in the database.
+    if related:
         lines.append("")
-        for v in violations:
-            lines.append(f"  - {v}")
+        lines.append("--- VERBATIM DIAGNOSTICS BLOCK ---")
+        lines.append("Copy this block EXACTLY into the article's diagnostics beat.")
+        lines.append("Do not add, remove, or change any number. Do not reformat.")
         lines.append("")
-    else:
+        for r in related:
+            _rdt = r.get("traded_at")
+            if _rdt and hasattr(_rdt, "strftime"):
+                if _rdt.hour == 0 and _rdt.minute == 0:
+                    # Midnight trade — skip the time in the display
+                    _rdate = _natural_date(_rdt)
+                else:
+                    _rh = _rdt.hour % 12 or 12
+                    _rampm = "AM" if _rdt.hour < 12 else "PM"
+                    _rtime = f"{_rh}:{_rdt.minute:02d} {_rampm}"
+                    _rdate = f"{_natural_date(_rdt)} at {_rtime}"
+            else:
+                _rdate = _natural_date(_rdt)
+            _rr = r.get("result")
+            if _rr is None:
+                _rr_str = "?"
+            elif _rr < 0:
+                _rr_str = f"LOSS of ${abs(int(_rr)):,}"
+            elif _rr > 0:
+                _rr_str = f"WIN of ${int(_rr):,}"
+            else:
+                _rr_str = "SCRATCH ($0)"
+            _atr_val = r.get("atr_at_entry")
+            _atr_str = f" | ATR {_atr_val}" if _atr_val is not None else ""
+            _clear_val = r.get("clearance_pct")
+            _clear_str = f" | clearance {float(_clear_val):.4f}%" if _clear_val is not None else ""
+            lines.append(
+                f"- {_rdate} | {r.get('contracts')} contracts | "
+                f"entry {r.get('entry')} | stop {r.get('stop')} | "
+                f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}"
+            )
+        lines.append("--- END VERBATIM DIAGNOSTICS BLOCK ---")
+        lines.append("")
+
+    # P2: batch performance block from diagnostics.
+    if related:
+        for ln in _batch_performance_block(related):
+            lines.append(ln)
+
+    report = _build_violation_report(trade, process, strategy=strategy)
+    frame = report["frame"]
+    primary = report["primary"]
+    secondary = report["secondary"]
+    risk = report["risk"]
+
+    if frame == "none":
         lines.append("NO RULE VIOLATIONS.")
         lines.append("")
+        lines.append(
+            "The trade followed every rule. Write about what it "
+            "reveals that the rules are working but the edge is "
+            "missing — or, if the trade was a win, why a rules-"
+            "compliant trade can still be unremarkable."
+        )
+        lines.append("")
+    else:
+        lines.append(f"FRAME: {frame.upper()}")
+        lines.append("")
+        lines.append(f"PRIMARY VIOLATION (the article is about this):")
+        lines.append(f"  - {primary}")
+        lines.append("")
+        if secondary:
+            lines.append("SECONDARY NOTES (mention only in passing):")
+            lines.append("")
+            for v in secondary:
+                lines.append(f"  - {v}")
+            lines.append("")
+
+        # Add the structured risk assessment to the skeleton so
+        # the model sees the numbers it must reference.
+        # Emit the RISK ASSESSMENT block whenever we have planned risk,
+    # regardless of frame. FRAME=NONE articles still need the budget
+    # and tolerance numbers visible so the model can say "the trade
+    # followed every rule, risk was in-band".
+    if risk.get("planned_risk_dollars") is not None:
+            lines.append("RISK ASSESSMENT:")
+            lines.append(f"  budget_dollars: {risk['budget_dollars']:.2f}")
+            lines.append(f"  budget_pct_of_equity: {risk['budget_pct_of_equity']:.2f}%")
+            lines.append(f"  tolerance_low_dollars: {risk['tolerance_low_dollars']:.2f}")
+            lines.append(f"  tolerance_high_dollars: {risk['tolerance_high_dollars']:.2f}")
+
+            # Planned vs realized — both labeled, never confused.
+            if risk.get('planned_risk_dollars') is not None:
+                lines.append(f"  planned_risk_dollars: {risk['planned_risk_dollars']:.2f}")
+                lines.append(f"  planned_risk_pct: {risk['planned_risk_pct']:.2f}%")
+            if risk.get('realized_pnl_dollars') is not None:
+                lines.append(f"  realized_pnl_dollars: {risk['realized_pnl_dollars']:+.2f}")
+                lines.append(f"  realized_pnl_pct: {risk['realized_pnl_pct']:+.2f}%")
+
+            # Sizing reconciliation — shows which cap bound.
+            if risk.get('n_risk_based') is not None:
+                lines.append(f"  n_risk_based: {risk['n_risk_based']}")
+                lines.append(f"  n_leverage_based: {risk['n_leverage_based']}")
+                lines.append(f"  n_expected: {risk['n_expected']}")
+                lines.append(f"  traded_size: {risk['traded_size']}")
+                lines.append(f"  binding_constraint: {risk['binding_constraint']}")
+                lines.append(f"  is_leverage_capped: {risk['is_leverage_capped']}")
+                lines.append(f"  sizing_reconciled: {risk['sizing_reconciled']}")
+
+            lines.append(f"  stop_distance: {risk['stop_distance']:.4f}")
+            if risk.get('stop_atr_multiple_actual') is not None:
+                lines.append(f"  stop_atr_multiple_actual: {risk['stop_atr_multiple_actual']:.4f}")
+            lines.append(f"  stop_atr_multiple_required: {risk['stop_atr_multiple_required']:.2f}")
+
+            # Deviation: labeled structural when the cap bound.
+            if risk.get('is_leverage_capped') and risk.get('sizing_reconciled'):
+                lines.append(
+                    f"  deviation: {risk['deviation']:+.2f} "
+                    f"(STRUCTURAL — leverage cap bound; correctly sized)"
+                )
+                lines.append(
+                    f"  deviation_pct_of_budget: {risk['deviation_pct']:+.2f}% "
+                    f"(structural, not a shortfall)"
+                )
+            else:
+                lines.append(f"  deviation: {risk['deviation']:+.2f}")
+                lines.append(f"  deviation_pct_of_budget: {risk['deviation_pct']:+.2f}%")
+
+            # P2: R-multiple and slippage dollars.
+            if risk.get("r_multiple") is not None:
+                lines.append(f"  r_multiple: {risk['r_multiple']:+.4f}")
+            if risk.get("total_slippage_dollars") is not None:
+                lines.append(f"  total_slippage_dollars: {risk['total_slippage_dollars']:+.4f}")
+
+            lines.append(f"  direction: {risk['direction']}")
+            lines.append(f"  multiplier: {risk['multiplier']}")
+            lines.append(f"  instrument_type: {risk['instrument_type']}")
+            lines.append("")
 
     lines.append("PROCESS RULES (the article uses only these):")
     lines.append("")
-    for r in _process_rules(process):
+    for r in _process_rules(process, strategy=strategy):
         lines.append(f"  - {r}")
     lines.append("")
 
@@ -717,6 +1392,7 @@ async def pick_trades(
           AND t.atr_at_entry IS NOT NULL
           AND t.exit IS NOT NULL
           AND t.result IS NOT NULL
+          AND EXTRACT(HOUR FROM t.traded_at) BETWEEN 13 AND 21
           {_where_extra}
         ORDER BY
             CASE WHEN t.result < 0 THEN 0 ELSE 1 END,
@@ -732,7 +1408,7 @@ async def pick_trades(
             "exit", "exit_reason", "result", "batch_id")
 
     # S.9.30 — coerce Decimal to float. Postgres numeric columns
-    # come back as Decimal; downstream math (entry - 0.75 * atr)
+    # come back as Decimal. Downstream math (entry - stop_multiple * atr)
     # mixes float and Decimal and raises TypeError.
     _NUMERIC = ("entry", "stop", "atr_at_entry", "exit", "result")
     out: list[dict[str, Any]] = []
@@ -742,6 +1418,25 @@ async def pick_trades(
             if d.get(f) is not None:
                 d[f] = float(d[f])
         out.append(d)
+    # Dedupe: some trade_log rows are duplicates (same instrument,
+    # traded_at, entry, exit, result). Collapse them so the article
+    # doesn't show the same trade three times in the diagnostics.
+    _seen = set()
+    _deduped: list[dict[str, Any]] = []
+    for _t in out:
+        _key = (
+            _t.get("instrument"),
+            str(_t.get("traded_at")),
+            float(_t.get("entry") or 0),
+            float(_t.get("exit") or 0),
+            float(_t.get("result") or 0),
+        )
+        if _key in _seen:
+            continue
+        _seen.add(_key)
+        _deduped.append(_t)
+    out = _deduped
+
     return out
 
 
@@ -828,18 +1523,18 @@ def build_trade_table(
                 return str(d)[:10]
 
     def _fmt_money(v: float) -> str:
-        # TRUNCATE, not round. The diagnostics block in
-        # build_skeleton uses abs(int(_rr)). If the table rounds
-        # (21.5 -> 22) and the diagnostics truncates (21.5 -> 21),
-        # the same trade appears with two different results.
-        # Both must truncate so the article is self-consistent.
+        # TRUNCATE with int(). This matches the diagnostic block's
+        # int() truncation. Both must truncate — the validator
+        # reads the skeleton's LOSS of $1,463 and checks the
+        # table for the same value. If the table rounds to $1,464,
+        # the validator rejects.
         if v < 0:
             return f"-${abs(int(v)):,}"
         return f"${int(v):,}"
 
     lines = [
-        "| Date | Contracts | Entry | Stop | Exit | Result |",
-        "|------|-----------|-------|------|------|--------|",
+        "| Date | Direction | Contracts | Entry | Stop | Exit | Result |",
+        "|------|-----------|-----------|-------|------|------|--------|",
     ]
 
     for t in trades[:6]:
@@ -882,7 +1577,7 @@ def build_trade_table(
         date_str = _natural_date(t.get("traded_at"))
 
         lines.append(
-            f"| {date_str} | {contracts} | {entry:.4f} | "
+            f"| {date_str} | {direction} | {contracts} | {entry:.4f} | "
             f"{(stop_val if stop_val is not None else '—')} | "
             f"{exit_:.4f} | {_fmt_money(result)} |"
         )

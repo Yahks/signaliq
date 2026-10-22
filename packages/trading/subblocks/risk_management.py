@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
 
-from ..ctas import pick_cta
 from ..editorial import compose_system_prompt
 from ..registry import pick_coordinate, covered_dimensions
 from ..registers._selector import pick_register
@@ -32,263 +31,138 @@ log = get_logger(__name__)
 
 
 PROMPT_TEMPLATE = """Coordinate: {dimension_label} / {angle_label}
-
 Framing: {angle_framing}
 
 --- ARTICLE SKELETON ---
 {skeleton}
 --- END ARTICLE SKELETON ---
 
-The skeleton is the only source of facts. Everything you write
-must come from it.
+The skeleton is the only source of facts. Every number you
+write must appear in it.
 
-Write in the practitioner-risk register. First person for what
-you did. Impersonal for the mechanism and the reframe. Never
-"you." Speak to a peer — a systematic trader who knows the
-terms.
+REGISTER: practitioner-risk. First person for what you did.
+Impersonal for the mechanism and the reframe. Never second
+person.
 
-Write in PARAGRAPHS. Each paragraph has 2-5 sentences on a
-single idea. Do not write one sentence per line. The article
-reads as continuous prose.
+FORMAT: continuous prose, paragraphs of 2-5 sentences. No
+headings, no bold labels, no beat names printed as titles.
+No bullets. The ONLY table is the verification table.
+Dates in prose: "Friday, October 9, 2026 at 2:30 PM."
+Never ISO format.
 
-Dates in prose: "Wednesday, June 3, 2026" or "June 3, 2026."
-Never "2026-06-03."
+THE FRAME. The skeleton's FRAME field tells you what the
+article is about. There are three frames:
 
-No headings. No bold labels. No beat names printed as titles.
-No tables — EXCEPT the verification table. The skeleton
-contains a block titled "--- VERIFICATION TABLE ---". You MUST
-quote that table verbatim — same rows, same dates, same order,
-same numbers. Do NOT compute any number in the table. Do NOT
-reorder the rows. Do NOT omit rows. Do NOT add rows. Just copy
-the block exactly as it appears in the skeleton.
+  FRAME = RISK. The trade risked the wrong dollar amount
+    against the risk budget. The skeleton's RISK ASSESSMENT
+    block has all the numbers: budget, actual_risk, deviation,
+    deviation_pct, direction (over/under). The article is about
+    the risk. Do not discuss entry rules.
 
-Do NOT write any other table. No formula notation — write every
-formula in words.
+  FRAME = ENTRY. The trade violated an entry rule (clearance,
+    ATR filter, stop placement). The skeleton's PRIMARY
+    VIOLATION field has the rule text. The article is about
+    that rule. Do not discuss the risk budget.
 
-THE ARTICLE HAS ONE SUBJECT TRADE. The skeleton contains a
-block titled "THE ARTICLE'S TRADE". Every beat except the
-diagnostics and the verification table uses ONLY that trade's
-facts.
+  FRAME = NONE. The trade followed every rule. The article is
+    about why a rules-compliant trade still produced an
+    unremarkable result.
 
-The skeleton also contains a block titled "THE RELATED
-TRADES". Use those trades in the diagnostics list and the
-verification table only.
+THE NINE BEATS, in order:
 
-THE ELEVEN BEATS, in order:
-
-1. HOOK — one paragraph. The trade from THE ARTICLE'S TRADE
-   block. First person, past tense. Name every one of these:
-     - date AND time of day, copied from the skeleton
-       (e.g. "Friday, January 2, 2026 at 9:30 AM")
+1. HOOK. One paragraph. First person, past tense. Copy from
+   THE ARTICLE'S TRADE block:
+     - date and time ("Friday, October 9, 2026 at 2:30 PM")
      - instrument
-     - contracts
+     - unit count (use "shares" for stocks, "contracts" for
+       futures)
      - entry price
-     - ATR at entry — write it as "the 5-day ATR was 32.0" or
-       "ATR 32.0". ATR is a POINT value, not a dollar value.
-       Never write "$32" or "ATR $32".
+     - ATR at entry (write "the 5-day ATR was 0.268", not "$0.268")
      - stop price
      - exit price
-     - result in dollars and percent of equity
+     - result in dollars
+     - percent of equity (copy from percent_of_equity field)
 
-   After the dollar loss, state the percent loss as
-   "a loss of X% of my $200,000 equity."
+2. PROBLEM. One sentence. Names the PRIMARY VIOLATION.
+   If FRAME is NONE, say the trade followed the rules.
 
-   THE STOP AND THE EXIT. Read the skeleton's stop and exit
-   fields.
-   - If the exit equals the stop (or is within 0.25 points),
-     write "the stop was hit" and nothing more.
-   - If the trade is a LOSS and the exit is on the wrong side of
-     the stop (below the stop for a long, above the stop for a
-     short), the market slipped past. Say so explicitly: "The
-     price slipped through the stop and I was filled at <exit>,
-     <gap> points past it."
-   - Otherwise — a WIN with the exit above the stop (long) or
-     below the stop (short) — just state the exit price. Do not
-     call it a slip. A winner is not a slip.
-   Do NOT attribute a stop slip to the ATR filter or any rule.
-   Filters reject ENTRIES, not exits.
+   In BOTH cases, ALSO name which constraint bound the
+   position size. The RISK ASSESSMENT block has:
+     - binding_constraint: "risk" OR "leverage_cap"
+     - n_risk_based: shares the risk formula alone would allow
+     - n_leverage_based: shares the 1x equity cap alone would allow
+     - traded_size: shares actually traded
+   Say it plainly:
+     - If binding_constraint is "risk": "The risk budget bound
+       the size (N shares). The leverage cap was slack — the
+       position used only X% of the account's notional capacity."
+     - If binding_constraint is "leverage_cap": "The 1x leverage
+       cap bound the size (N shares). The risk formula would
+       have allowed more, but the account cannot safely hold
+       that notional."
 
-PERCENTS. The article may write only two kinds of percent:
-   - the clearance percent from the setup string ("0.5% clearance")
-   - the percent-of-equity loss for the subject trade
-     ("a loss of 0.9% of my $200,000 equity")
-   Do NOT write "X% of the entry price", "a X% move", "a X% stop
-   distance", or any other percent. No derived percents. No
-   percentages of the stop distance. No percentages of the ATR.
+3. MECHANISM. One paragraph. Why the framed rule matters.
+   Use the rule's logic, not a generic statement.
+   Frame-specific:
+     - RISK: why dollars-at-risk matter more than stop
+       distance. The budget is 1.5% of equity (~$3,000 on
+       $200,000); the tolerance band is 1.0%-2.0% of equity
+       (~$2,000 to ~$4,000). A trade that risks under the
+       floor cannot move the account; over the ceiling it
+       risks ruin.
+     - ENTRY: why the specific entry rule (clearance, ATR
+       filter, stop placement) matters.
+     - NONE: why rules filter bad trades but do not
+       guarantee good ones.
 
-2. THE PROBLEM — one sentence. What failed about THE ARTICLE'S
-   TRADE.
+4. DIAGNOSTICS. Copy the VERBATIM DIAGNOSTICS BLOCK from the
+   skeleton exactly. Every row, every number, every date. Do
+   NOT invent a trade. Do NOT change a number. Do NOT reformat
+   a date. Wrap in <!-- DIAGNOSTICS --> markers.
 
-3. THE MECHANISM — one or two paragraphs. Impersonal. Why the
-   failure happened. Teach the reader something they did not
-   have a name for.
+5. FIXES. Four to five changes, continuous prose, in one
+   paragraph or two. Each references THE ARTICLE'S TRADE.
 
-   Discuss ONLY THE RULE NAMED IN THE RULE VIOLATIONS BLOCK.
-   Read that block.
-   - If only the ATR filter is violated, the mechanism
-     explains why an ATR above the threshold fails the trade.
-     Do not discuss clearance, sizing, or stop placement.
-   - If only clearance is violated, the mechanism explains
-     why marginal clearance fails the trade. Do not discuss
-     the ATR filter.
-   - If the setup is a pull-back to a moving average, the
-     clearance rule does NOT apply at all — a pull-back has
-     no breakout to clear a high.
-   The mechanism is about ONE rule. One paragraph is enough.
-   Do not summarize the whole process.
+   HARD RULE: Every number you write in the fixes must be a
+   number that appears in the PROCESS RULES block or the RISK
+   ASSESSMENT block. Do NOT invent a threshold. Do NOT say
+   "0.9x equity" if PROCESS RULES says "1.0x equity". Do NOT
+   say "50% deviation" if no deviation tolerance is in
+   PROCESS RULES. Do NOT say "ATR below 0.25" if PROCESS
+   RULES says "ATR <= 30". The rules are the only source.
 
-4. THE DIAGNOSTICS — present the COMPLETE results of the related
-   trades. One bullet per related trade. Format:
+   If you want to describe an adjustment, use the rule as
+   stated: "I now enforce the 1.5% risk budget on every
+   entry." Do NOT add a tolerance or a cap that is not
+   written.
 
-     - <date and time> | <N> contracts | entry <E> | stop <S> | exit <X> | <result string>
+   Vary sentence openers. Do NOT write "would have prevented"
+   or "would have capped" — state what you do now.
 
-   The <date and time> is copied from that trade's block in the
-   skeleton (e.g. "Monday, January 5, 2026 at 9:30 AM").
+6. REFRAME. One sentence. Standalone. Impersonal. Matches the
+   frame:
+     - RISK: "Stop distance isn't the risk. Risk is stop
+       distance times size."
+     - ENTRY: a distinction about the entry rule.
+     - NONE: a distinction about rules-compliant trades.
+   Do NOT repeat the mechanism. Do NOT use a fixed "X isn't Y,
+   it's Z" formula unless it genuinely fits. Wrap in
+   <!-- REFRAME --> markers.
 
-   The <result string> is copied VERBATIM from the related trade
-   block in the skeleton. It is already formatted as "WIN of
-   $X,XXX", "LOSS of $X,XXX", or "SCRATCH ($0)". Do not recompute
-   it, do not prefix the word "loss", do not add or remove a
-   minus sign. If the skeleton says "WIN of $3,000", the
-   diagnostic item ends with "WIN of $3,000".
+7. CHECKLIST. Five questions, woven into one or two short
+   paragraphs. Each sentence ends with "?". Frame-relevant,
+   not generic. Wrap in <!-- CHECKLIST --> markers.
 
-   THE STOP-EXIT GAP. For each related trade, compare its stop
-   to its exit.
-   - If the exit equals the stop (within 0.25 points), write
-     the item as-is.
-   - If the trade is a LOSS and the exit is on the wrong side of
-     the stop (below for long, above for short), append
-     " (slipped X pts)" where X is the gap.
-   - Otherwise — a WIN, or an exit on the same side as the
-     entry — write the item as-is. A winner is not a slip.
-   Do not attribute a slip to a filter or rule.
+8. VERIFICATION TABLE. The Python-built table appears in the
+   article after the checklist. Do not write your own table —
+   it will be stripped and replaced. The table will have the
+   format:
+     | Date | Direction | Contracts | Entry | Stop | Exit | Result |
+   The subject trade is row 1. Five related trades follow in
+   chronological order.
 
-   Example:
-     - September 29, 2026 | 3 contracts | entry 20,345 | stop 20,323.7 | exit 20,430 | WIN of $5,100
-     - October 2, 2026 | 4 contracts | entry 21,230 | stop 21,211.325 | exit 21,180 | LOSS of $4,000
-
-   Every value comes from THE RELATED TRADES block. Do NOT
-   write "I took a 3-contract long on..."
-
-5. THE FIXES — four to five changes ABOUT THE ARTICLE'S TRADE.
-   Continuous prose. Use only rules from the PROCESS RULES
-   block. Each fix references THE ARTICLE'S TRADE. The article's
-   trade date must appear in at least three of the fixes.
-   Rotate openers. No two consecutive fixes start the same way.
-
-   Do NOT write counterfactual claims. Do not write "would
-   have capped", "would have limited", "would have prevented",
-   "would have avoided", "would have kept me out", or any
-   phrase saying what a rule would have done to the loss.
-   State what you do now. The trade happened; the fix changes
-   the future. A stop is a level, not a guarantee — do not
-   claim it would have capped or limited anything.
-
-6. THE REFRAME — one or two sentences. Standalone. Impersonal.
-   It corrects a MISTAKEN EQUIVALENCE. "X is not what you
-   think. X is what it actually is."
-
-   THE REFRAME MUST BE ABOUT THE RULE NAMED IN THE RULE
-   VIOLATIONS BLOCK. Read that block.
-   - If the violation is the ATR filter, the reframe is about
-     the ATR filter.
-   - If the violation is clearance, the reframe is about
-     clearance.
-   - If the violation is sizing or stop, the reframe is about
-     that rule.
-   Do NOT write a clearance reframe if the violation is the
-   ATR filter. The reader sees the mismatch immediately.
-
-   Example for an ATR-filter violation:
-     "The ATR filter isn't a speed limit on entries. It's a
-      ceiling on the size of the loss the trade can take."
-
-   Example for a clearance violation:
-     "Clearance isn't a buffer against noise. It's the minimum
-      distance the price must prove the breakout."
-
-   Weak: "Clearance is the minimum distance above the 10-day
-   high." (a definition, not a distinction)
-
-7. THE CHECKLIST — five questions woven into one or two
-   paragraphs. Every sentence ends with "?". Not a bulleted
-   list.
-
-8. TRADE VERIFICATION — one markdown table. All six trades from
-   the batch. Columns:
-
-     | Date | Contracts | Entry | Stop | Exit | Result |
-     |------|-----------|-------|------|------|--------|
-
-   ROW FORMAT:
-   - Date: copied from the skeleton EXACTLY, including the
-     weekday. If the skeleton says "Tuesday, January 6, 2026",
-     write "Tuesday, January 6, 2026" — not "Thursday" and
-     not "Jan 6, 2026". The weekday must match the date. Do
-     NOT include the time in this table.
-   - Contracts, Entry, Stop, Exit: numbers copied from the
-     skeleton.
-   - Result: signed dollar amount — "+$2,640" for a win,
-     "-$1,800" for a loss. Do NOT write "WIN of" or "LOSS of"
-     in this table.
-
-   The subject trade is the FIRST row. The five related trades
-   follow in chronological order.
-
-   Example row:
-     | Tuesday, February 24, 2026 | 3 | 21200.0 | 21176.0 | 21170.0 | -$1,800 |
-
-9. PERFORMANCE CONTEXT — one sentence. Output this text
-   verbatim, substituting {account_name} as written:
-
-     "These trades are drawn from {account_name}. The full
-      trade record, equity curve, and monthly performance are
-      at https://signaliq.com/trading/performance"
-
-   Do NOT generate a performance record. Do not invent trade
-   counts, winner counts, loser counts, averages, largest wins,
-   or largest losses. The record lives on the performance page.
-   The article links to it.
-
-   Do NOT change the wording. Do NOT write "in this article"
-   — that phrase is forbidden by the register.
-
-10. HOW THE PROCESS LOOKS OVER TIME — one or two paragraphs.
-    What the trades reveal about the process. Do NOT refer to
-    "the batch", "the six-trade set", "this article", "this
-    piece", or "the sample". Write as if the reader is looking
-    at a real trading record: use "the last six trades" or
-    "these trades" or name a specific trade by date.
-
-    Do NOT cite dollar averages, totals, or any performance
-    statistic. The performance page carries those. Refer to
-    specific trades by date and their individual results
-    ($1,800 loss, $2,640 win) — those are the article's own
-    trades. Do NOT summarize winners, losers, or averages.
-
-    Open with a specific trade date, not with "Looking at". 
-    Right: "The February 24 trade was the only one where the
-            ATR filter was ignored."
-    Wrong: "Looking at the last six trades, the wins all..."
-
-11. THE CTA — one paragraph. Output this text verbatim:
-
-      {cta_text}
-
-MARKERS. Wrap three beats in HTML comments:
-
-  <!-- REFRAME -->
-  ... the reframe ...
-  <!-- /REFRAME -->
-
-  <!-- DIAGNOSTICS -->
-  - item
-  - item
-  <!-- /DIAGNOSTICS -->
-
-  <!-- CHECKLIST -->
-  ... the checklist ...
-  <!-- /CHECKLIST -->
+9. END. End the article with the checklist. Nothing after
+   the checklist. No CTA, no marketing line, no URL.
 
 LENGTH: 500-800 words.
 """
@@ -388,7 +262,6 @@ async def generate(
         subblock_slug=slug,
         covered_dimensions=covered,
     )
-    cta_text = pick_cta(coord["dimension_keywords"], post_index=tier_index)
 
     # S.9.29 — pool-based picker. Count unused trades. If fewer
     # than 6 are available, generate 20 more on demand. The pool
@@ -400,18 +273,14 @@ async def generate(
 
     unused = await count_unused_trades(session, org_id)
     if unused < 6:
+        # The strategy-driven generator (risk_management_trades.py)
+        # supplies trades per-symbol. If a single symbol has fewer
+        # than 6 unused trades, the pipeline below retries with a
+        # different symbol. There is NO synthetic fallback — the
+        # old path called a broken LLM that mixed NQ futures with
+        # a CL process document, producing invalid trades.
         log.info("risk_management.pool_low", unused=unused)
-        try:
-            from packages.trading.synthetic_trades import (
-                generate_synthetic_trades,
-            )
-            await generate_synthetic_trades(
-                session, org_id=org_id, count=20, force=True,
-            )
-        except Exception as exc:
-            log.warning("risk_management.batch_gen_failed",
-                        error=str(exc)[:200])
-            return {"status": "no_trades_available", "slug": slug}
+        # Fall through; pick_stock_and_timeframe will try other symbols.
 
     # ── Subject-first selection with per-symbol coherence ──
     #
@@ -425,7 +294,17 @@ async def generate(
         _equity_from_summary, _rule_violations, pick_trades as _pick_trades,
     )
 
-    process = await read_process(session, org_id)
+    process = await read_process(session, org_id, instrument_type="stock")
+
+    # Load the structured strategy from trader_instrument_process.
+    # Every rule the trade generator applies comes from here.
+    _strategy_row = (await session.execute(sql_text("""
+        SELECT strategy_json
+        FROM trader_instrument_process
+        WHERE org_id = :oid AND instrument_type = 'stock'
+          AND deleted_at IS NULL LIMIT 1
+    """), {"oid": org_id})).first()
+    strategy = dict(_strategy_row[0]) if _strategy_row and _strategy_row[0] else {}
 
     # Get a first batch of candidates (any symbol) so we can find
     # a coherent-violation trade with a symbol that has enough
@@ -444,10 +323,24 @@ async def generate(
         build_skeleton, read_process, load_performance_record,
         _equity_from_summary, _rule_violations, pick_trades as _pick_trades,
     )
-    from ..scrapers.trade_generator import ensure_trades_for
-    from .market_analysis_rotation_stock import pick_stock_and_timeframe
+    # risk_management has its own trade generator and stock picker.
+    # No imports from market_analysis_rotation_stock or trade_generator.
+    from .risk_management_trades import (
+        ensure_trades_for,
+        pick_stock_and_timeframe,
+    )
 
-    process = await read_process(session, org_id)
+    process = await read_process(session, org_id, instrument_type="stock")
+
+    # Load the structured strategy from trader_instrument_process.
+    # Every rule the trade generator applies comes from here.
+    _strategy_row = (await session.execute(sql_text("""
+        SELECT strategy_json
+        FROM trader_instrument_process
+        WHERE org_id = :oid AND instrument_type = 'stock'
+          AND deleted_at IS NULL LIMIT 1
+    """), {"oid": org_id})).first()
+    strategy = dict(_strategy_row[0]) if _strategy_row and _strategy_row[0] else {}
 
     _MAX_STOCK_RETRIES = 3
     subject = None
@@ -463,15 +356,17 @@ async def generate(
             log.warning("risk_management.no_stock_pick",
                         org_id=org_id[:8])
             return {"status": "no_stock_pick", "slug": slug}
-        (
-            _sym, _tf, _ftype, _fsection,
-        ) = stock_pick
+        # risk_management's picker returns (symbol, timeframe).
+        # No finding_type / section — those were market_analysis
+        # concepts that came in with the port and are dead here.
+        _sym, _tf = stock_pick
 
         await session.commit()
 
         await ensure_trades_for(
             session, org_id=org_id,
             symbol=_sym, timeframe=_tf, count=10,
+            strategy=strategy,
         )
 
         _sym_trades = await _pick_trades(
@@ -486,21 +381,54 @@ async def generate(
             )
             continue
 
-        _coherent = [
-            t for t in _sym_trades if _rule_violations(t, process)
+        # Categorize trades by outcome for a mixed pool.
+        _violators = [
+            t for t in _sym_trades
+            if _rule_violations(t, process, strategy=strategy)
+        ]
+        _winners = [
+            t for t in _sym_trades
+            if (t.get("result") or 0) > 0 and t not in _violators
         ]
         _losers = [
-            t for t in _sym_trades if (t.get("result") or 0) < 0
+            t for t in _sym_trades
+            if (t.get("result") or 0) < 0 and t not in _violators
         ]
-        _ordered = _coherent + [
-            t for t in _losers if t not in _coherent
-        ]
-        _ordered += [
-            t for t in _sym_trades if t not in _ordered
+        _scratches = [
+            t for t in _sym_trades
+            if (t.get("result") or 0) == 0 and t not in _violators
         ]
 
-        subject = _ordered[0]
-        pool = _ordered[:6]
+        # Subject = first violator (the article is about a violation).
+        # If no violator exists, fall back to first trade.
+        if _violators:
+            subject = _violators[0]
+        elif _sym_trades:
+            subject = _sym_trades[0]
+        else:
+            subject = None
+
+        # Related pool: mix of outcomes so the diagnostics aren't
+        # all losses. Take up to 2 winners, 2 losers, 1 scratch,
+        # then fill from anything remaining.
+        _related: list = []
+        for t in _winners[:2]:
+            if t["id"] != subject["id"]:
+                _related.append(t)
+        for t in _losers[:2]:
+            if t["id"] != subject["id"]:
+                _related.append(t)
+        for t in _scratches[:1]:
+            if t["id"] != subject["id"]:
+                _related.append(t)
+        # Fill up to 5 if above didn't reach it
+        for t in _sym_trades:
+            if len(_related) >= 5:
+                break
+            if t["id"] != subject["id"] and t not in _related:
+                _related.append(t)
+
+        pool = [subject] + _related[:5]
         break
 
     if subject is None or len(pool) < 4:
@@ -525,6 +453,7 @@ async def generate(
         account_equity=equity,
         related=related,
         performance=performance,
+        strategy=strategy,
     )
 
     topic_word = _compute_topic_word_from_trade(subject)
@@ -550,7 +479,6 @@ async def generate(
         angle_label=coord["angle_label"],
         angle_framing=coord["angle_framing"],
         skeleton=skeleton,
-        cta_text=cta_text,
         topic_word=topic_word,
         account_name=account_name,
     )
@@ -583,7 +511,6 @@ async def generate(
             "dimension_label": coord["dimension_label"],
             "angle_label": coord["angle_label"],
             "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
             "skeleton": skeleton,
             "trade_id": subject["id"],
         },
@@ -650,8 +577,11 @@ async def generate(
             # so the validator can check the reframe against the
             # rule the article is actually about.
             import re as _re
+            # New skeleton format uses FRAME / PRIMARY / SECONDARY.
+            # Old format used RULE VIOLATIONS. Match either, up to
+            # the PROCESS RULES block.
             _vm = _re.search(
-                r"RULE VIOLATIONS.*?(?=PROCESS RULES)",
+                r"(?:FRAME:|RULE VIOLATIONS).*?(?=PROCESS RULES)",
                 skeleton, _re.DOTALL,
             )
             _violations_text = _vm.group(0) if _vm else ""
@@ -694,6 +624,69 @@ async def generate(
                 post.unsupported_claims or []
             ) + [f"__validator_error__: {str(_ve)[:200]}"]
 
+    # ── Render the subject trade's candlestick ──
+    # One chart, for the subject trade's timeframe. The chart shows
+    # OHLC candles with entry, stop, target, and exit overlaid.
+    # Inserted as a markdown image right after the verification
+    # table (or at the top if no table).
+    try:
+        from packages.trading.charts.article_charts import (
+            render_trade_candlestick,
+        )
+        _candle_url = await render_trade_candlestick(
+            session,
+            org_id=org_id,
+            symbol=subject.get("instrument") or subject.get("symbol") or "",
+            timeframe=subject.get("timeframe") or "1d",
+            entry=float(subject["entry"]) if subject.get("entry") is not None else None,
+            stop=float(subject["stop"]) if subject.get("stop") is not None else None,
+            target=float(subject["target"]) if subject.get("target") is not None else None,
+            exit_price=float(subject["exit"]) if subject.get("exit") is not None else None,
+            entry_time=subject.get("entry_time"),
+            exit_time=subject.get("exit_time"),
+        )
+        if _candle_url:
+            _candle_md = (
+                f"\n\n![{subject.get('instrument') or 'trade'} "
+                f"{subject.get('timeframe') or '1d'} candles]"
+                f"({_candle_url})\n\n"
+            )
+            # Insert after the verification table if present,
+            # otherwise append to the body before the CTA.
+            if "| Date | Direction | Contracts |" in post.body:
+                # Split at the table's end (blank line after last row).
+                import re as _re
+                _table_end = _re.search(
+                    r"\n\s*\n", post.body[post.body.find("| Date | Direction | Contracts |"):]
+                )
+                if _table_end:
+                    _insert_at = post.body.find("| Date | Direction | Contracts |") + _table_end.end()
+                    post.body = (
+                        post.body[:_insert_at]
+                        + _candle_md
+                        + post.body[_insert_at:]
+                    )
+                else:
+                    post.body = post.body + _candle_md
+            else:
+                # No table. Insert after the first paragraph.
+                _first_blank = post.body.find("\n\n")
+                if _first_blank > 0:
+                    post.body = (
+                        post.body[:_first_blank]
+                        + _candle_md
+                        + post.body[_first_blank:]
+                    )
+                else:
+                    post.body = post.body + _candle_md
+            log.info("risk_management.candle_inserted",
+                     url=_candle_url,
+                     symbol=subject.get("instrument"),
+                     timeframe=subject.get("timeframe"))
+    except Exception as _ce:
+        log.warning("risk_management.candle_failed",
+                    error=str(_ce)[:200])
+
     post_id = await persist_post(
         session,
         org_id=org_id,
@@ -706,7 +699,6 @@ async def generate(
             "dimension_label": coord["dimension_label"],
             "angle_label": coord["angle_label"],
             "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
         },
         source_urls=[],
         symbols=[],

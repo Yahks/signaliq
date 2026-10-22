@@ -77,7 +77,8 @@ async def generate(
         coord["dimension_keywords"], post_index=tier_index,
     )
     process_excerpt = await get_process_excerpt(
-        session, org_id, coord["dimension_id"],
+        session, org_id, coord["dimension_id"], instrument_type="stock",
+    
     )
 
     user_prompt = PROMPT_TEMPLATE.format(

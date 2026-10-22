@@ -72,7 +72,7 @@ def compute_facts(
 
     # --- size_wrong ---
     if (atr and contracts and atr > 0):
-        formula = int(2000 / (atr * DOLLARS_PER_POINT))
+        formula = int(2000 / max(0.01, abs(entry - stop)))
         if formula > 0 and contracts != formula:
             codes.add("size_wrong")
 
