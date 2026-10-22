@@ -201,18 +201,36 @@ def _batch_performance_block(
         if any(r < 0 for r in r_multiples) else 0.0
     )
 
+    # Batch definition — explicit. The reviewer wants to know
+    # which trades are included and which aren't.
+    _net_r_mean = net_r / total if total > 0 else 0.0
+    _net_pnl = sum(wins) + sum(losses)
+    # Simulate current equity after cumulative realized P&L.
+    # The reviewer's Gap 8: equity is fixed at 200,000 in the
+    # prose, but real losses reduce it. Track it explicitly.
+    _starting_equity = 200000.0
+    _current_equity = _starting_equity + _net_pnl
+
     lines = [
-        "BATCH PERFORMANCE (diagnostics only, computed by Python):",
+        "BATCH PERFORMANCE (computed by Python, all values are exact):",
         "",
+        f"  batch_definition: last {total} diagnostics, excluding subject trade",
         f"  batch_size: {total}",
+        f"  n_wins: {len(wins)}",
+        f"  n_losses: {len(losses)}",
         f"  win_rate: {win_rate * 100:.1f}%",
         f"  avg_win_dollars: ${avg_win:.2f}",
         f"  avg_loss_dollars: ${avg_loss:.2f}",
+        f"  net_pnl_dollars: ${_net_pnl:+.2f}",
         f"  expectancy_per_trade: ${expectancy:+.2f}",
         f"  profit_factor: {profit_factor:.2f}",
-        f"  net_r_aggregate: {net_r:+.2f}",
+        f"  net_r_sum: {net_r:+.4f}",
+        f"  net_r_mean: {_net_r_mean:+.4f}",
         f"  avg_win_r: {avg_win_r:+.2f}",
         f"  avg_loss_r: {avg_loss_r:+.2f}",
+        f"  starting_equity: ${_starting_equity:.2f}",
+        f"  current_equity: ${_current_equity:.2f}",
+        f"  current_equity_budget: ${_current_equity * 0.015:.2f} (1.5% of current equity)",
         "",
     ]
     return lines
@@ -602,12 +620,23 @@ def _assess_risk(
         "is_violation": is_violation,
 
         # P2: R-multiple and slippage dollars.
+        # r_multiple uses planned_risk_dollars as denominator.
+        # The reviewer wants to know WHICH size the R is computed
+        # on: the risk-budget size (n_risk_based) or the executed
+        # size (traded_size). If the leverage cap bound, they
+        # differ. State it explicitly.
         "r_multiple": round(
             (realized_pnl_dollars / planned_risk_dollars)
             if (realized_pnl_dollars is not None and planned_risk_dollars > 0)
             else 0.0,
             4,
         ) if realized_pnl_dollars is not None else None,
+        "r_computed_on": (
+            "leverage_capped_size" if (
+                n_leverage_based < n_risk_based
+            ) else "risk_budget_size"
+        ),
+        "r_denominator_dollars": round(planned_risk_dollars, 2) if planned_risk_dollars else None,
         "total_slippage_dollars": round(
             (
                 (float(trade.get("entry_slippage") or 0.0)
@@ -1135,10 +1164,22 @@ def build_skeleton(
             _atr_str = f" | ATR {_atr_val}" if _atr_val is not None else ""
             _clear_val = r.get("clearance_pct")
             _clear_str = f" | clearance {float(_clear_val):.4f}%" if _clear_val is not None else ""
+            # Per-diagnostic binding constraint: was the size bound
+            # by the risk budget or the leverage cap?
+            _bc_str = ""
+            _d_entry = r.get("entry")
+            _d_stop = r.get("stop")
+            _d_size = r.get("contracts")
+            if _d_entry and _d_stop and _d_size:
+                _d_stop_dist = abs(float(_d_entry) - float(_d_stop))
+                _d_risk_based = int(3000.0 / (_d_stop_dist * 1.0)) if _d_stop_dist > 0 else 0
+                _d_lev_based = int(200000.0 / (float(_d_entry) * 1.0)) if float(_d_entry) > 0 else 0
+                _d_bc = "leverage_cap" if _d_lev_based < _d_risk_based else "risk"
+                _bc_str = f" | binding {_d_bc}"
             lines.append(
                 f"- {_rdate} | {r.get('contracts')} contracts | "
                 f"entry {r.get('entry')} | stop {r.get('stop')} | "
-                f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}"
+                f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}{_bc_str}"
             )
         lines.append("--- END VERBATIM DIAGNOSTICS BLOCK ---")
         lines.append("")
@@ -1230,6 +1271,10 @@ def build_skeleton(
             # P2: R-multiple and slippage dollars.
             if risk.get("r_multiple") is not None:
                 lines.append(f"  r_multiple: {risk['r_multiple']:+.4f}")
+            if risk.get("r_computed_on"):
+                lines.append(f"  r_computed_on: {risk['r_computed_on']}")
+            if risk.get("r_denominator_dollars") is not None:
+                lines.append(f"  r_denominator_dollars: ${risk['r_denominator_dollars']:.2f}")
             if risk.get("total_slippage_dollars") is not None:
                 lines.append(f"  total_slippage_dollars: {risk['total_slippage_dollars']:+.4f}")
 
