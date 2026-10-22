@@ -83,7 +83,7 @@ THE NINE BEATS, in order:
      - result in dollars
      - percent of equity (copy from percent_of_equity field)
 
-2. PROBLEM. One sentence. Names the PRIMARY VIOLATION.
+2. PROBLEM. One or two sentences. Names the PRIMARY VIOLATION.
    If FRAME is NONE, say the trade followed the rules.
 
    In BOTH cases, ALSO name which constraint bound the
@@ -100,6 +100,9 @@ THE NINE BEATS, in order:
        cap bound the size (N shares). The risk formula would
        have allowed more, but the account cannot safely hold
        that notional."
+
+   ALSO state the R-multiple from RISK ASSESSMENT.r_multiple
+   (e.g. "a -1R loss" or "a +1.63R win"). A stop-out is -1R.
 
 3. MECHANISM. One paragraph. Why the framed rule matters.
    Use the rule's logic, not a generic statement.
@@ -136,6 +139,27 @@ THE NINE BEATS, in order:
    entry." Do NOT add a tolerance or a cap that is not
    written.
 
+   SLIPPAGE. If the RISK ASSESSMENT block has
+   total_slippage_dollars and it is not zero, name it in one
+   of the fixes. Say "slippage cost me $X on this trade" or
+   "the total slip was $X — more than half the planned risk."
+   The stop distance is not the whole risk. Slippage is the
+   gap between planned and realized.
+
+   BATCH PERFORMANCE. The skeleton has a BATCH PERFORMANCE
+   block: win_rate, expectancy_per_trade, profit_factor,
+   net_r_aggregate, avg_win_r, avg_loss_r. In ONE of the
+   fixes, state the batch-level numbers. Examples:
+     - "Across the last five trades my win rate was 40% and
+        expectancy was -$84/trade — a losing edge, not a
+        winning one."
+     - "The R-profile looks better than the dollar P&L
+        because winners averaged +1.63R while losers cut at
+        -0.82R, but the win rate is too low to overcome the
+        asymmetry."
+   Do NOT paraphrase the numbers. Quote them exactly from
+   the BATCH PERFORMANCE block.
+
    Vary sentence openers. Do NOT write "would have prevented"
    or "would have capped" — state what you do now.
 
@@ -144,7 +168,8 @@ THE NINE BEATS, in order:
      - RISK: "Stop distance isn't the risk. Risk is stop
        distance times size."
      - ENTRY: a distinction about the entry rule.
-     - NONE: a distinction about rules-compliant trades.
+     - NONE: distinguish single-trade risk from portfolio
+       risk — rules bound the former, not the latter.
    Do NOT repeat the mechanism. Do NOT use a fixed "X isn't Y,
    it's Z" formula unless it genuinely fits. Wrap in
    <!-- REFRAME --> markers.
