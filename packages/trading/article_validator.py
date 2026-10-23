@@ -1044,6 +1044,36 @@ def _check_floor_claim(
     return []
 
 
+def _check_unit_word(
+    body: str, trades: list[dict[str, Any]],
+) -> list[str]:
+    """A stock trade must be described in shares, not contracts.
+
+    The prompt says "shares for stocks, contracts for futures".
+    The model ignores it in the hook and body — SBAC, FOXA, GDDY,
+    BRK-B, AAPL all said "N contracts" for stocks. The diagnostics
+    rows were fixed at the source (article_trades now emits
+    "shares" for non-futures); this catches the remaining prose.
+
+    Only matches a digit followed by "contracts" in prose. The
+    Python-built table header ("| Contracts |") has no leading
+    digit and is not matched; diagnostics now say "shares".
+    """
+    if not trades:
+        return []
+    # Futures symbols are the NQ* family; everything else is a stock.
+    syms = {str(t.get("symbol") or "").upper() for t in trades}
+    if any(s.startswith("NQ") for s in syms):
+        return []
+    m = re.search(r"\b\d[\d,]*\s+contracts\b", body or "", re.IGNORECASE)
+    if not m:
+        return []
+    return [
+        f"body says '{m.group(0)}' for a stock; use 'shares', not "
+        f"'contracts' (contracts is for futures)"
+    ]
+
+
 # ── Main entry point ─────────────────────────────────────────────
 
 
@@ -1203,6 +1233,7 @@ def validate(
     reasons.extend(_check_reframe_shape(body, trades, analysis, violations_text))
     reasons.extend(_check_lifetime_performance_claim(body))
     reasons.extend(_check_floor_claim(body, trades, account_equity))
+    reasons.extend(_check_unit_word(body, trades))
     reasons.extend(_check_fabricated_atr_diagnostic(body, trades))
     reasons.extend(_check_register_notation(body))
     reasons.extend(_check_checklist_form(body))
