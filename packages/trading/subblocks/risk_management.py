@@ -202,7 +202,18 @@ THE EIGHT BEATS, in order:
 
    BREAKEVEN MATH. The BATCH PERFORMANCE block has a
    BREAKEVEN MATH section: payoff_ratio, breakeven_win_rate,
-   actual_win_rate, edge_gap_pct. You MUST state these in
+   actual_win_rate, edge_gap_pct.
+
+   If it says `low_sample: true`, or `payoff_ratio: n/a`, or
+   `edge_gap: n/a` — there is NO breakeven gap to quote. In
+   that case state the batch size and say the sample is too
+   small to estimate an edge (or that a batch with no losses
+   has no breakeven). Do NOT invent a breakeven percentage.
+   Do NOT quote an edge gap. Do NOT write "needs a 0.0% win
+   rate to break even".
+
+   Otherwise (a real mixed batch, low_sample: false, with a
+   numeric edge_gap_pct) you MUST state the breakeven math in
    the fixes.
 
    Write a sentence like: "The batch needs a 75.5% win rate

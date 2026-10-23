@@ -212,22 +212,42 @@ def _batch_performance_block(
     _current_equity = _starting_equity + _net_pnl
 
     # Breakeven math — reviewer's "single most important addition".
-    # avg_loss_dollars is negative; use absolute value for the
-    # payoff ratio.
+    # Three cases, handled explicitly. The previous code collapsed
+    # both edge cases to payoff=0.0 / breakeven=0.0%, which is the
+    # worst possible batch (needs 100% to break even), yet was
+    # emitted as "0.0% breakeven" — the opposite of the truth.
+    #   - no losses (all wins):  payoff = infinity, breakeven = 0%
+    #   - no wins (all losses):  payoff = 0, breakeven = 100%
+    #   - mixed:                 payoff = avg_win / |avg_loss|
     _avg_win = sum(wins) / len(wins) if wins else 0.0
     _avg_loss_abs = abs(sum(losses) / len(losses)) if losses else 0.0
-    _payoff_ratio = _avg_win / _avg_loss_abs if _avg_loss_abs > 0 else 0.0
-    _breakeven_win_rate = (
-        1.0 / (1.0 + _payoff_ratio)
-        if _payoff_ratio > 0 else 0.0
-    )
-    _edge_gap_pct = (win_rate - _breakeven_win_rate) * 100.0
+    _no_losses = len(losses) == 0
+    _no_wins = len(wins) == 0
+    _low_sample = total < 4
+
+    if _no_losses:
+        _payoff_display = "n/a (no losses)"
+        _payoff_ratio = float("inf")
+        _breakeven_win_rate = 0.0
+    elif _no_wins:
+        _payoff_display = "0.0000"
+        _payoff_ratio = 0.0
+        _breakeven_win_rate = 1.0
+    else:
+        _payoff_ratio = _avg_win / _avg_loss_abs
+        _payoff_display = f"{_payoff_ratio:.4f}"
+        _breakeven_win_rate = 1.0 / (1.0 + _payoff_ratio)
+
+    _breakeven_display = f"{_breakeven_win_rate * 100:.1f}%"
 
     lines = [
         "BATCH PERFORMANCE (computed by Python, all values are exact):",
         "",
         f"  batch_definition: last {total} diagnostics, excluding subject trade",
         f"  batch_size: {total}",
+        f"  low_sample: {'true' if _low_sample else 'false'}"
+        + (" (n<4 — do NOT claim an edge or a breakeven gap from this batch)"
+           if _low_sample else ""),
         f"  n_wins: {len(wins)}",
         f"  n_losses: {len(losses)}",
         f"  win_rate: {win_rate * 100:.1f}%",
@@ -244,13 +264,33 @@ def _batch_performance_block(
         f"  current_equity: ${_current_equity:.2f}",
         f"  current_equity_budget: ${_current_equity * 0.015:.2f} (1.5% of current equity)",
         "",
-        "  BREAKEVEN MATH (single most important line in the batch):",
-        f"  payoff_ratio: {_payoff_ratio:.4f}",
-        f"  breakeven_win_rate: {_breakeven_win_rate * 100:.1f}%",
+        "  BREAKEVEN MATH:",
+        f"  payoff_ratio: {_payoff_display}",
+        f"  breakeven_win_rate: {_breakeven_display}",
         f"  actual_win_rate: {win_rate * 100:.1f}%",
-        f"  edge_gap_pct: {_edge_gap_pct:+.1f}",
-        "",
     ]
+    if _no_losses:
+        lines.append(
+            "  edge_gap: n/a — a batch with no losses breaks even at "
+            "any win rate; do NOT quote an edge gap."
+        )
+    elif _no_wins:
+        lines.append(
+            "  edge_gap: n/a — a batch with no wins needs a 100% win "
+            "rate to break even; do NOT quote an edge gap as if it "
+            "were a near miss."
+        )
+    elif _low_sample:
+        lines.append(
+            f"  edge_gap_pct: {(win_rate - _breakeven_win_rate) * 100.0:+.1f}"
+            f" (low sample, n={total} — state the gap but say the "
+            f"sample is too small to call it an edge)"
+        )
+    else:
+        lines.append(
+            f"  edge_gap_pct: {(win_rate - _breakeven_win_rate) * 100.0:+.1f}"
+        )
+    lines.append("")
     return lines
 
 
