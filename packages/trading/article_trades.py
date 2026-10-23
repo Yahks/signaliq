@@ -830,8 +830,9 @@ def _build_violation_report(
         _n_risk = risk['n_risk_based']
         _n_lev = risk['n_leverage_based']
         _traded = risk['traded_size']
+        _direction = risk.get('direction', 'on-budget')
 
-        if direction == "over":
+        if _direction == "over":
             primary = (
                 f"Risk rule violated: planned risk was "
                 f"${_planned_dollars:.2f} against a "
@@ -843,7 +844,7 @@ def _build_violation_report(
                 f"Planned risk was {_planned_pct:.2f}% of equity, "
                 f"above the ceiling."
             )
-        elif direction == "under":
+        elif _direction == "under":
             primary = (
                 f"Risk rule violated: planned risk was only "
                 f"${_planned_dollars:.2f} against a "

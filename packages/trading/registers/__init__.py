@@ -132,8 +132,9 @@ REGISTERS: dict[str, str] = {
         "    Fixes         — FIRST PERSON. Changes you made, each as a before/after. 'I used to X. After Y, I now Z.'\n"
         "    Reframe       — IMPERSONAL. A standalone truth.\n"
         "    Checklist     — FIRST PERSON inside a reader-facing list. 'Can I...' / 'Do I...' / 'Have I...'\n"
-        "    CTA           — FIRST PERSON. 'I built this.'\n"
-        "  The pattern is: I, I, it, I, I, it, I, I.\n"
+        "  There is NO CTA beat for practitioner-risk. The article ends\n"
+        "  on the checklist. No marketing line, no URL, no 'email me'.\n"
+        "  The pattern is: I, I, it, I, I, it, I.\n"
         "  Rule 1 — first person for everything the trader did.\n"
         "  Rule 2 — impersonal for mechanism and reframe only.\n"
         "  Rule 3 — NO SECOND PERSON in the piece except the checklist's 'Can I' items.\n"
@@ -641,6 +642,15 @@ COMMON_PROHIBITIONS: list[tuple[str, str]] = [
      r"|looking at (?:this|the|these|those|the last|the next)"
      r"|this (?:piece|post|column)"
      r"|this sample of \w+)\b"),
+    # CTA / URL backstop — catches marketing lines and links
+    # regardless of what the register says. Allows chart image
+    # paths (/static/... or https://signaliq.com/static/...).
+    ("cta",
+     r"(?i)\b(?:email me|reach out|sign up|subscribe|follow me|dm me|"
+     r"get in touch|book a call|join my|link in bio|"
+     r"click (?:here|the link))\b"
+     r"|https?://(?!signaliq\.com/static)"
+     r"|(?<![\]()])www\.\w+"),
     ("process narration",
      r"(?i)\b(?:the (?:source|instruction|register|prompt) (?:forbids|requires|"
      r"states|says)"
