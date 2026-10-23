@@ -1241,7 +1241,7 @@ def build_skeleton(
         lines.append(f"  - {primary}")
         lines.append("")
         if secondary:
-            lines.append("SECONDARY NOTES (mention only in passing):")
+            lines.append("SECONDARY VIOLATIONS (name each one — these are rule violations, not footnotes):")
             lines.append("")
             for v in secondary:
                 lines.append(f"  - {v}")

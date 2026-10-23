@@ -83,7 +83,16 @@ THE EIGHT BEATS, in order:
      - result in dollars
      - percent of equity (copy from percent_of_equity field)
 
-2. PROBLEM. One or two sentences. Names the PRIMARY VIOLATION.
+2. PROBLEM. One or two sentences. Names EVERY violation the
+   skeleton lists — the PRIMARY VIOLATION and each SECONDARY
+   NOTE. If the skeleton has a SECONDARY NOTES block, those
+   are not footnotes; they are violations of the same rules the
+   primary one broke. Name each one in plain terms.
+
+   Example (two violations): "I got two things wrong: I sized
+   the trade at 100 shares when the budget called for 246, and
+   I set the stop at 2.69 x ATR when the rule caps it at 2.00."
+
    If FRAME is NONE, say the trade followed the rules.
 
    In BOTH cases, ALSO name which constraint bound the
@@ -106,6 +115,15 @@ THE EIGHT BEATS, in order:
 
 3. MECHANISM. One paragraph. Why the framed rule matters.
    Use the rule's logic, not a generic statement.
+
+   If the skeleton lists MORE THAN ONE violation, the mechanism
+   must explain how they COMPOUND, not just restate each one.
+   For a wide-stop + undersized trade: "The 2.69 x ATR stop
+   inflated risk-per-share to $12.17, which cut the risk-based
+   share count to 246 — and I then traded 100, a second error
+   on top of the first. The wide stop and the small size are
+   linked: the stop error made the correct size smaller, and I
+   undersized past even that."
    Frame-specific:
      - RISK: why dollars-at-risk matter more than stop
        distance. The budget is 1.5% of equity (~$3,000 on
@@ -125,6 +143,14 @@ THE EIGHT BEATS, in order:
 
 5. FIXES. Four to five changes, continuous prose, in one
    paragraph or two. Each references THE ARTICLE'S TRADE.
+
+   COVERAGE RULE: every violation named in the PROBLEM beat
+   must be addressed by at least one fix here. If the article
+   named two violations (a wide stop and an undersized
+   position), there must be a fix for the stop AND a fix for
+   the sizing. Naming a violation in beat 2 and never fixing
+   it is an incomplete article. If the skeleton lists a
+   SECONDARY NOTE, that is a violation and it needs a fix.
 
    HARD RULE: Every number you write in the fixes must be a
    number that appears in the PROCESS RULES block or the RISK
@@ -201,8 +227,12 @@ THE EIGHT BEATS, in order:
      - NONE: distinguish single-trade risk from portfolio
        risk — rules bound the former, not the latter.
    Do NOT repeat the mechanism. Do NOT use a fixed "X isn't Y,
-   it's Z" formula unless it genuinely fits. Wrap in
-   <!-- REFRAME --> markers.
+   it's Z" formula unless it genuinely fits.
+
+   Write the reframe as ONE standalone sentence in its own
+   paragraph, immediately after the fixes paragraph and
+   immediately before the verification table. Do NOT wrap it in
+   HTML comments or any marker of any kind. Plain prose only.
 
 7. VERIFICATION TABLE. The Python-built table appears in the
    article after the reframe. Do not write your own table —
@@ -215,7 +245,7 @@ THE EIGHT BEATS, in order:
 8. END. End the article with the verification table. Nothing
    after the table. No CTA, no marketing line, no URL.
 
-LENGTH: 500-800 words.
+LENGTH: 750-1230 words.
 """
 
 

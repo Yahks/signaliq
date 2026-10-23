@@ -125,6 +125,18 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z]+", norm))
 
 
+def _stems(text: str) -> set[str]:
+    """Tokens with a light trailing-s stem so plurals and
+    third-person verbs match their base form in the reframe
+    check: 'risks'→'risk', 'stops'→'stop', 'filters'→'filter'.
+    Only strips a single trailing 's' from tokens longer than
+    three characters, so 'atr' and 'sizing' are unaffected."""
+    out = set()
+    for t in _tokens(text):
+        out.add(t[:-1] if len(t) > 3 and t.endswith("s") else t)
+    return out
+
+
 def _similar(a: str, b: str) -> float:
     """Jaccard similarity on content tokens, stopwords removed."""
     stop = {
@@ -261,6 +273,31 @@ def _extract_reframe(body: str) -> str:
     )
     if m:
         return m.group(1).strip()
+    # The model often writes only the opening marker. If the
+    # opening marker exists but the closing one does not, take
+    # the paragraph that follows it (up to a blank line) as the
+    # reframe. This is unambiguous: the marker was intended to
+    # start the reframe block, and the next paragraph is the
+    # reframe sentence.
+    m = re.search(
+        r"<!--\s*REFRAME\s*-->\s*(.+?)(?:\n\s*\n|$)",
+        body or "", re.DOTALL,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if candidate and "<!--" not in candidate:
+            return candidate
+    # Positional: the reframe is the last paragraph before the
+    # verification table. The table header begins with "| Date".
+    body_s = (body or "").strip()
+    table_idx = body_s.find("| Date")
+    if table_idx > 0:
+        pre_table = body_s[:table_idx].rstrip()
+        paras = [p.strip() for p in re.split(r"\n\s*\n", pre_table) if p.strip()]
+        if paras:
+            cand = paras[-1]
+            if "|" not in cand and not cand.startswith("- "):
+                return cand
     # Fallback for the old shape.
     m = re.search(
         r"([A-Z][^.!?]{20,200}[.!?])\s*\n+\s*I (?:now|added|introduced)",
@@ -274,7 +311,7 @@ def _extract_reframe(body: str) -> str:
 def _semantic_reframe_violation(body: str) -> str | None:
     reframe = _extract_reframe(body)
     if not reframe:
-        return None
+        return "article has no extractable reframe block"
 
     # Near-verbatim reuse of a prior article's reframe.
     for forbidden in FORBIDDEN_REFRAME_MECHANISMS:
@@ -687,8 +724,8 @@ def _check_reframe_relevance(
     """
     reframe = _extract_reframe(body)
     if not reframe:
-        return []
-    reframe_kw = _tokens(reframe) & _REFRAME_KEYWORDS
+        return ["article has no extractable reframe block"]
+    reframe_kw = _stems(reframe) & {_k[:-1] if len(_k) > 3 and _k.endswith("s") else _k for _k in _REFRAME_KEYWORDS}
     if not reframe_kw:
         return [
             "reframe references none of the article's mechanism terms "
