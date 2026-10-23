@@ -40,6 +40,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text as sql_text
+
+from .conditions_compute import compute_conditions
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -447,6 +449,43 @@ async def build_conditions_skeleton(
     lines.append(f"  correlation_baseline: {_fmt_num(BASELINE_CORRELATION)}")
     lines.append(f"  candidate_count_baseline: {_fmt_num(BASELINE_CANDIDATE_COUNT)}")
     lines.append("")
+
+    # ── MARKET CONTEXT ──
+    # Broad-market readings computed across the traded symbols.
+    # These are a DIFFERENT measurement from the trader's dashboard
+    # readings above; they must not be substituted for them.
+    try:
+        _mc = await compute_conditions(
+            session, org_id,
+            as_of=(created.date() if isinstance(created, datetime)
+                   else datetime.now(timezone.utc).date()),
+        )
+        lines.append("MARKET_CONTEXT (computed across the traded symbols — "
+                     "NOT the trader's readings; do not substitute):")
+        for _k, _label in (
+            ("realized_vol_current", "computed_realized_vol"),
+            ("range_current", "computed_range"),
+            ("correlation_current", "computed_correlation"),
+            ("breadth_current", "computed_breadth"),
+        ):
+            _v = _mc.get(_k)
+            if _v is None:
+                lines.append(f"  {_label}: unavailable")
+            elif isinstance(_v, float):
+                lines.append(f"  {_label}: {_v:.2f}")
+            else:
+                lines.append(f"  {_label}: {_v}")
+        lines.append(f"  spread: unavailable (no quote data)")
+        lines.append("  note: the trader's own readings are in READINGS "
+                     "above. These are a broad-market measurement. If they "
+                     "differ from the trader's dashboard, say so; do not "
+                     "use one in place of the other, and do not re-derive "
+                     "the regime states from these numbers — the REGIMES "
+                     "block below is computed from the trader's readings.")
+        lines.append("")
+    except Exception as _e:
+        lines.append(f"MARKET_CONTEXT unavailable: {str(_e)[:120]}")
+        lines.append("")
 
     # ── REGIMES ──
     lines.append("REGIMES (each state is computed, not inferred):")
