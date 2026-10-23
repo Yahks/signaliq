@@ -700,12 +700,20 @@ def _check_reframe_relevance(
     source_tokens |= _tokens(analysis)
     for t in trades:
         source_tokens |= _tokens(t.get("setup") or "")
-    source_kw = source_tokens & _REFRAME_KEYWORDS
-    if reframe_kw & source_kw:
+    # The reframe must use at least one concept from the allowed
+    # vocabulary. It does NOT need to echo a word from the trade
+    # setups — the whole point of a reframe is to generalize
+    # beyond the specific trade ("this loss is about drawdown,
+    # not stop distance" introduces a portfolio-level concept
+    # the setups never mention). Requiring the reframe to
+    # reuse the source's exact words defeats the reframe.
+    if reframe_kw:
         return []
+    source_kw = source_tokens & _REFRAME_KEYWORDS
     return [
-        f"reframe keywords {sorted(reframe_kw)} do not intersect the "
-        f"article's rule keywords {sorted(source_kw)}"
+        f"reframe uses none of the allowed vocabulary; "
+        f"reframe keywords {sorted(reframe_kw)}, "
+        f"allowed vocabulary {sorted(_REFRAME_KEYWORDS)}"
     ]
 
 

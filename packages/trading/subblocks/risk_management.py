@@ -174,6 +174,22 @@ THE NINE BEATS, in order:
    NOT invent a positive outcome. A rules-compliant system
    can still lose money — name the loss, do not hide it.
 
+   BREAKEVEN MATH. The BATCH PERFORMANCE block has a
+   BREAKEVEN MATH section: payoff_ratio, breakeven_win_rate,
+   actual_win_rate, edge_gap_pct. You MUST state these in
+   the fixes.
+
+   Write a sentence like: "The batch needs a 75.5% win rate
+   to break even at a 0.33 payoff ratio; it has 40.0% — a
+   35.5-point edge gap."
+
+   This is the single most important line in the article.
+   It converts "edge emerges across hundreds of iterations"
+   from a hope into a computed gap. If the edge gap is
+   negative, name the loss. If positive, name the surplus.
+   Do NOT omit this sentence. Do NOT paraphrase the
+   numbers. Do NOT round.
+
    Vary sentence openers. Do NOT write "would have prevented"
    or "would have capped" — state what you do now.
 

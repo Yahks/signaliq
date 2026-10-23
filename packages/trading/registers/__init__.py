@@ -635,9 +635,9 @@ COMMON_PROHIBITIONS: list[tuple[str, str]] = [
     ("meta-commentary",
      r"\b(?:in this article|it'?s worth noting|let'?s dive in|in conclusion|"
      r"at the end of the day|when it comes to|in the world of"
-     r"|this (?:six[- ]trade |\w+[- ]trade )?batch"
+     r"|this (?:six[- ]trade |\w+[- ]trade )batch"
      r"|the batch of \w+"
-     r"|across this batch|in this batch"
+     r"|(?:in|across) this batch,\s+(?:we|i'?ll|we'?re|let'?s)"
      r"|looking at (?:this|the|these|those|the last|the next)"
      r"|this (?:piece|post|column)"
      r"|this sample of \w+)\b"),

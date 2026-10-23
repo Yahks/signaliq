@@ -211,6 +211,18 @@ def _batch_performance_block(
     _starting_equity = 200000.0
     _current_equity = _starting_equity + _net_pnl
 
+    # Breakeven math — reviewer's "single most important addition".
+    # avg_loss_dollars is negative; use absolute value for the
+    # payoff ratio.
+    _avg_win = sum(wins) / len(wins) if wins else 0.0
+    _avg_loss_abs = abs(sum(losses) / len(losses)) if losses else 0.0
+    _payoff_ratio = _avg_win / _avg_loss_abs if _avg_loss_abs > 0 else 0.0
+    _breakeven_win_rate = (
+        1.0 / (1.0 + _payoff_ratio)
+        if _payoff_ratio > 0 else 0.0
+    )
+    _edge_gap_pct = (win_rate - _breakeven_win_rate) * 100.0
+
     lines = [
         "BATCH PERFORMANCE (computed by Python, all values are exact):",
         "",
@@ -231,6 +243,12 @@ def _batch_performance_block(
         f"  starting_equity: ${_starting_equity:.2f}",
         f"  current_equity: ${_current_equity:.2f}",
         f"  current_equity_budget: ${_current_equity * 0.015:.2f} (1.5% of current equity)",
+        "",
+        "  BREAKEVEN MATH (single most important line in the batch):",
+        f"  payoff_ratio: {_payoff_ratio:.4f}",
+        f"  breakeven_win_rate: {_breakeven_win_rate * 100:.1f}%",
+        f"  actual_win_rate: {win_rate * 100:.1f}%",
+        f"  edge_gap_pct: {_edge_gap_pct:+.1f}",
         "",
     ]
     return lines
@@ -1170,16 +1188,26 @@ def build_skeleton(
             _d_entry = r.get("entry")
             _d_stop = r.get("stop")
             _d_size = r.get("contracts")
+            # Per-diagnostic R-multiple and exit type.
+            _r_mult_str = ""
+            _exit_type_str = ""
             if _d_entry and _d_stop and _d_size:
                 _d_stop_dist = abs(float(_d_entry) - float(_d_stop))
+                _d_planned = _d_stop_dist * int(_d_size)
+                _d_r_mult = (
+                    float(_rr) / _d_planned if _d_planned > 0 else 0.0
+                )
+                _r_mult_str = f" | R {_d_r_mult:+.2f}"
                 _d_risk_based = int(3000.0 / (_d_stop_dist * 1.0)) if _d_stop_dist > 0 else 0
                 _d_lev_based = int(200000.0 / (float(_d_entry) * 1.0)) if float(_d_entry) > 0 else 0
                 _d_bc = "leverage_cap" if _d_lev_based < _d_risk_based else "risk"
                 _bc_str = f" | binding {_d_bc}"
+            _exit_reason_val = r.get("exit_reason") or "unknown"
+            _exit_type_str = f" | exit_type {_exit_reason_val}"
             lines.append(
                 f"- {_rdate} | {r.get('contracts')} contracts | "
                 f"entry {r.get('entry')} | stop {r.get('stop')} | "
-                f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}{_bc_str}"
+                f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}{_bc_str}{_r_mult_str}{_exit_type_str}"
             )
         lines.append("--- END VERBATIM DIAGNOSTICS BLOCK ---")
         lines.append("")
