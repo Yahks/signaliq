@@ -718,7 +718,10 @@ def parse_retry_after(err_msg: str, default_seconds: int = 60) -> int:
       2. "retry after 30"            — header-style hint
       3. "try again at 4:15:00 PM"   — RPD/TPD window (until a clock time)
       4. default_seconds             — no hint found; 60s, not 900s
-    Capped at 3600s so a malformed message can't lock the key for a day.
+    Capped at 3600s (1h) so a malformed message cannot lock the key
+    for a day. A genuine daily limit longer than 1h is retried once
+    early and then re-cooldowned, which is cheaper than the thrash
+    that a 23-second parse produced.
 
     S.9.19 — the previous default was 900s (15 minutes). A single
     unparseable 429 locked all keys for 15 minutes, so a burst
@@ -731,14 +734,31 @@ def parse_retry_after(err_msg: str, default_seconds: int = 60) -> int:
     if not err_msg:
         return default_seconds
 
-    # 1. "try again in 5.6s"
-    m = re.search(r"try again in ([\d.]+)s", err_msg)
-    if m:
-        try:
-            secs = float(m.group(1)) + 1.0
-            return max(1, min(int(secs), 3600))
-        except ValueError:
-            pass
+    # 1. "try again in 5.6s" / "try again in 33m22.32s" — parse the
+    #    FULL duration, including minutes. The old regex matched only
+    #    the trailing "22.32s" of a "33m22.32s" TPD hint, returning
+    #    23s for a key that had hit its daily cap: it came back
+    #    immediately, 429'd again, and thrashed the pool.
+    #
+    #    Take the LONGEST duration mentioned in the body — a TPD
+    #    error often carries both a per-minute and a per-day window,
+    #    and the key cannot serve again until the longer one expires.
+    _durations: list[float] = []
+    for _m in re.finditer(
+        r"(?:try again in|retry.{0,5}after[^\d]*)\s*"
+        r"(?:(\d+(?:\.\d+)?)\s*h)?\s*"
+        r"(?:(\d+(?:\.\d+)?)\s*m)?\s*"
+        r"(?:(\d+(?:\.\d+)?)\s*s)?",
+        err_msg, re.IGNORECASE,
+    ):
+        _h = float(_m.group(1) or 0)
+        _mi = float(_m.group(2) or 0)
+        _s = float(_m.group(3) or 0)
+        _total = _h * 3600 + _mi * 60 + _s
+        if _total > 0:
+            _durations.append(_total + 1.0)
+    if _durations:
+        return max(1, min(int(max(_durations)), 3600))
 
     # 2. "retry after 30"
     m = re.search(r"retry.{0,5}after[^\d]*([\d.]+)", err_msg, re.IGNORECASE)
