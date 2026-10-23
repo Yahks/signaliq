@@ -477,6 +477,24 @@ async def build_conditions_skeleton(
     lines.append(f"  candidate_count_baseline: {_fmt_num(BASELINE_CANDIDATE_COUNT)}")
     lines.append("")
 
+    # ── MECHANISMS ──
+    # The trader's stored mechanism text, verbatim. The article's
+    # mechanism beat must draw from this and must not sharpen it:
+    # if the trader says "after the daily settlement window", the
+    # article may not turn that into a specific time the trader
+    # never stated.
+    _mech = (mc.get("mechanisms") or "").strip()
+    if _mech:
+        lines.append("MECHANISMS (the trader's own words — quote, do "
+                     "not sharpen):")
+        lines.append(f"  {_mech}")
+        lines.append("  note: state a mechanism from this text. Do NOT "
+                     "add a time, a level, or a trigger the text does not "
+                     "state. If the text says 'the settlement window' "
+                     "without a time, the article says 'the settlement "
+                     "window' — not '4pm'.")
+        lines.append("")
+
     # ── MARKET CONTEXT ──
     # Broad-market readings computed across the traded symbols.
     # These are a DIFFERENT measurement from the trader's dashboard

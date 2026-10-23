@@ -582,6 +582,39 @@ def _check_budget_fork_committed(body: str, skeleton: str) -> list[str]:
     return []
 
 
+def _check_mechanism_not_sharpened(body: str, skeleton: str) -> list[str]:
+    """The mechanism must not gain specificity the trader's text
+    lacks.
+
+    The trader wrote "after the daily settlement window" with no
+    time. An article that turns that into "4pm settlement" has
+    sharpened the claim into something the source does not support.
+    Only fires when the MECHANISMS text names the mechanism AND the
+    body attaches a clock time to it that the text does not contain.
+    """
+    m = re.search(r"MECHANISMS \(the trader's own words.*?\n  (.+?)\n",
+                  skeleton, re.DOTALL)
+    if not m:
+        return []
+    mech = m.group(1).strip().lower()
+    if "settlement" not in mech:
+        return []
+    b = body or ""
+    # a clock time near "settlement" that the trader's text lacks
+    for mm in re.finditer(r"([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?)"
+                          r"[^.]{0,40}?settlement|settlement[^.]{0,40}?"
+                          r"([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?)",
+                          b, re.IGNORECASE):
+        t = (mm.group(1) or mm.group(2) or "").strip().lower()
+        if t and t not in mech:
+            return [
+                f"the article attaches a specific time ({t}) to the "
+                f"settlement mechanism, but the trader's text names no "
+                f"time — quote the mechanism as written"
+            ]
+    return []
+
+
 def validate_market_condition(
     body: str,
     skeleton: str,
@@ -603,6 +636,7 @@ def validate_market_condition(
     reasons.extend(_check_per_symbol_reported(body, skeleton))
     reasons.extend(_check_significance_stated(body, skeleton))
     reasons.extend(_check_budget_fork_committed(body, skeleton))
+    reasons.extend(_check_mechanism_not_sharpened(body, skeleton))
     reasons.extend(_check_no_checklist(body))
     reasons.extend(_check_no_cta(body))
     return reasons

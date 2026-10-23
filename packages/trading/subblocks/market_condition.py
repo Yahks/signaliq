@@ -47,6 +47,11 @@ suspended. Do NOT present the tightened stop and the suspension as
 both active. Do NOT add a clause claiming to resolve the conflict;
 state the resolved rule as a fact.
 
+The mechanism beat draws ONLY from the MECHANISMS block. Quote the
+trader's phrasing; do not sharpen it. If the block says "after the
+daily settlement window" without a time, do not write "4pm" or any
+specific hour — the trader never stated one.
+
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a
 WARNING, reconcile the drawdown against the 1.5% per-trade budget in
@@ -119,6 +124,11 @@ suspended. Do NOT present the tightened stop and the suspension as
 both active. Do NOT add a clause claiming to resolve the conflict;
 state the resolved rule as a fact.
 
+The mechanism beat draws ONLY from the MECHANISMS block. Quote the
+trader's phrasing; do not sharpen it. If the block says "after the
+daily settlement window" without a time, do not write "4pm" or any
+specific hour — the trader never stated one.
+
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a
 WARNING, reconcile the drawdown against the 1.5% per-trade budget in
@@ -165,6 +175,11 @@ write "suspend" for that regime — the rule is superseded, not
 suspended. Do NOT present the tightened stop and the suspension as
 both active. Do NOT add a clause claiming to resolve the conflict;
 state the resolved rule as a fact.
+
+The mechanism beat draws ONLY from the MECHANISMS block. Quote the
+trader's phrasing; do not sharpen it. If the block says "after the
+daily settlement window" without a time, do not write "4pm" or any
+specific hour — the trader never stated one.
 
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a
