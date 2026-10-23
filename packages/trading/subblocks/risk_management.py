@@ -93,7 +93,17 @@ THE EIGHT BEATS, in order:
    the trade at 100 shares when the budget called for 246, and
    I set the stop at 2.69 x ATR when the rule caps it at 2.00."
 
-   If FRAME is NONE, say the trade followed the rules.
+   If FRAME is NONE, say the trade followed the rules. Do NOT
+   open with "I got this wrong for a year" or any "I got it
+   wrong" phrasing when the trade broke no rule — there was no
+   wrong. Lead with what the rules-compliant trade reveals.
+
+   FLOOR CHECK. Compare planned_risk_dollars to
+   tolerance_low_dollars in the RISK ASSESSMENT block. If
+   planned risk is BELOW the floor, say so plainly: "this
+   trade risked $X, below the $Y floor, because the leverage
+   cap bound the size." Never say the trade stayed "within the
+   tolerance band" when it did not.
 
    In BOTH cases, ALSO name which constraint bound the
    position size. The RISK ASSESSMENT block has:

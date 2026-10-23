@@ -981,6 +981,69 @@ def _check_lifetime_performance_claim(body: str) -> list[str]:
     return []
 
 
+def _check_floor_claim(
+    body: str, trades: list[dict[str, Any]],
+    account_equity: float | None,
+) -> list[str]:
+    """If the body says the trade stayed within the tolerance band
+    but planned risk was below the 1.0% floor (or above the 2.0%
+    ceiling), the claim is false.
+
+    Two things this must get right:
+      - the claim regex: "within <...> tolerance <...> band" or
+        "within tolerance". The word "tolerance" is required
+        between "within" and "band" so "within the price band"
+        and "within the band of volatility" do not match.
+      - the subject trade: pick_trades returns newest-first, and
+        the subject is not necessarily trades[0]. Find it by the
+        hook date, the same way _check_hook_stop_state does.
+    """
+    if not trades or not account_equity:
+        return []
+    claim = re.search(
+        r"within\b[^.]{0,60}?\btolerance\b[^.]{0,20}?\bband\b"
+        r"|within\s+tolerance\b",
+        body or "", re.IGNORECASE,
+    )
+    if not claim:
+        return []
+    hook = (body or "").split("\n\n", 1)[0]
+    dt = _parse_hook_date(hook)
+    if not dt:
+        return []
+    subject = None
+    for t in trades:
+        td = t.get("traded_at")
+        if td is not None and hasattr(td, "year") and (
+            td.year, td.month, td.day
+        ) == dt:
+            subject = t
+            break
+    if subject is None:
+        return []
+    entry = subject.get("entry")
+    stop = subject.get("stop")
+    size = subject.get("contracts")
+    if entry is None or stop is None or size is None:
+        return []
+    planned = abs(float(entry) - float(stop)) * int(size)
+    floor = 0.010 * float(account_equity)
+    ceiling = 0.020 * float(account_equity)
+    if planned < floor:
+        return [
+            f"body claims the trade stayed within the tolerance band, "
+            f"but planned risk ${planned:.2f} is below the "
+            f"${floor:.2f} floor"
+        ]
+    if planned > ceiling:
+        return [
+            f"body claims the trade stayed within the tolerance band, "
+            f"but planned risk ${planned:.2f} is above the "
+            f"${ceiling:.2f} ceiling"
+        ]
+    return []
+
+
 # ── Main entry point ─────────────────────────────────────────────
 
 
@@ -1139,6 +1202,7 @@ def validate(
     reasons.extend(_check_diagnostics_beat(body))
     reasons.extend(_check_reframe_shape(body, trades, analysis, violations_text))
     reasons.extend(_check_lifetime_performance_claim(body))
+    reasons.extend(_check_floor_claim(body, trades, account_equity))
     reasons.extend(_check_fabricated_atr_diagnostic(body, trades))
     reasons.extend(_check_register_notation(body))
     reasons.extend(_check_checklist_form(body))

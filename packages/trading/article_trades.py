@@ -1246,7 +1246,8 @@ def build_skeleton(
             _exit_reason_val = r.get("exit_reason") or "unknown"
             _exit_type_str = f" | exit_type {_exit_reason_val}"
             lines.append(
-                f"- {_rdate} | {r.get('contracts')} contracts | "
+                f"- {_rdate} | {r.get('contracts')} "
+                f"{'contracts' if str(r.get('symbol') or '').upper().startswith('NQ') else 'shares'} | "
                 f"entry {r.get('entry')} | stop {r.get('stop')} | "
                 f"exit {r.get('exit')} | {_rr_str}{_atr_str}{_clear_str}{_bc_str}{_r_mult_str}{_exit_type_str}"
             )
