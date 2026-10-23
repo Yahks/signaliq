@@ -239,6 +239,33 @@ ADJUSTMENTS_BY_REGIME: dict[str, str] = {
 }
 
 
+async def _active_rules_for(
+    session: AsyncSession, org_id: str, regimes: list[str],
+) -> dict[str, str]:
+    """Return {regime: rule_text} from market_condition_rules.
+
+    Falls back to the hardcoded ADJUSTMENTS_BY_REGIME when the org
+    has no rows for a regime — so an org that has not been seeded
+    (or a fresh install before the migration ran) behaves exactly
+    as before.
+    """
+    if not regimes:
+        return {}
+    rows = (await session.execute(sql_text("""
+        SELECT DISTINCT ON (regime) regime, rule_text
+        FROM market_condition_rules
+        WHERE org_id = :oid AND deleted_at IS NULL
+          AND regime = ANY(:regimes)
+        ORDER BY regime, effective_from DESC
+    """), {"oid": org_id, "regimes": regimes})).mappings().all()
+    out: dict[str, str] = {}
+    for r in rows:
+        out[r["regime"]] = r["rule_text"]
+    for reg in regimes:
+        out.setdefault(reg, ADJUSTMENTS_BY_REGIME.get(reg, ""))
+    return out
+
+
 async def _trade_linkage(
     session: AsyncSession, org_id: str, as_of: datetime,
 ) -> dict[str, Any]:
@@ -505,9 +532,11 @@ async def build_conditions_skeleton(
     # ── ACTIVE RULES ──
     lines.append("ACTIVE_RULES (the only process adjustments in force "
                  "for this snapshot):")
+    _active_names = [s["name"] for s in active]
+    _rules_map = await _active_rules_for(session, org_id, _active_names)
     if active:
         for s in active:
-            rule = ADJUSTMENTS_BY_REGIME.get(s["name"], "")
+            rule = _rules_map.get(s["name"], "")
             lines.append(f"  [{s['name']}] {rule}")
     else:
         lines.append("  (none — no regime is currently active)")
@@ -522,7 +551,7 @@ async def build_conditions_skeleton(
     # than quoting both.
     _conflicts: list[str] = []
     for s in active:
-        rule = ADJUSTMENTS_BY_REGIME.get(s["name"], "").lower()
+        rule = _rules_map.get(s["name"], "").lower()
         _tightens = ("tighten" in rule and "stop" in rule)
         _suspends = ("suspend" in rule and "stop" in rule)
         if _tightens and _suspends:
@@ -542,7 +571,7 @@ async def build_conditions_skeleton(
         lines.append("RESOLVED_RULE (state this; do NOT restate the raw "
                      "conflict):")
         for s in active:
-            rule = ADJUSTMENTS_BY_REGIME.get(s["name"], "").lower()
+            rule = _rules_map.get(s["name"], "").lower()
             if "tighten" in rule and "stop" in rule and "suspend" in rule and "stop" in rule:
                 lines.append(
                     f"  [{s['name']}] the tightened 0.5% stop REPLACES the "
