@@ -68,7 +68,7 @@ article is about. There are three frames:
     about why a rules-compliant trade still produced an
     unremarkable result.
 
-THE NINE BEATS, in order:
+THE EIGHT BEATS, in order:
 
 1. HOOK. One paragraph. First person, past tense. Copy from
    THE ARTICLE'S TRADE block:
