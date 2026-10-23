@@ -16,6 +16,8 @@ from packages.core.logging import get_logger
 
 from ..editorial import compose_system_prompt
 from ..market_conditions import format_conditions_block, get_market_conditions
+from ..market_conditions_skeleton import build_conditions_skeleton
+from ..market_condition_validator import validate_market_condition
 from ..post_process import post_process_article
 from ..registers._selector import pick_register
 from .base import call_llm_json_verified, persist_post
@@ -33,65 +35,51 @@ observations. Every number in the piece must come from here.
 
 {conditions_block}
 
+STRUCTURED SKELETON — computed by Python. Every number you cite
+MUST come from this block. Do not invent a metric.
+
+{skeleton}
+
 Write the F1 Regime Report now.
 
-  - The current breadth state, named explicitly (wide or narrow).
-  - The structural reason — a named mechanism (breadth narrows
-    before declines; index moves weaken when few names carry the
-    index).
-  - What it means for index-correlated strategies versus
-    individual-name setups.
-  - Four to six observable diagnostics the reader can check
-    (advance/decline, percentage above the 50-day, new highs vs.
-    new lows).
-  - Four to five process adjustments. Rules, not trades.
+  - Name the regime states the skeleton reports: which regimes
+    are ACTIVE, which are INACTIVE, which are UNKNOWN. Do not call
+    a regime active that the skeleton marks INACTIVE or UNKNOWN.
+  - Apply ONLY the rules listed under ACTIVE_RULES. A rule tied
+    to an INACTIVE or UNKNOWN regime is not in force — do not
+    apply it.
+  - State the LIMITS plainly: single snapshot, no persistence, no
+    base rate, no conditional expectancy. Do not claim the regime
+    has persisted for N days.
+  - If TRADE LINKAGE shows a negative net, say so. A
+    rules-compliant regime note can still sit on a losing trade
+    record — name the loss.
 
-BEAT SHAPE — eight beats, in order. Do NOT skip any:
+BEAT SHAPE — seven beats, in order:
 
   1. Hook — first person, with tension.
   2. Problem — one sentence. What the reading did to your read.
-  3. Mechanism — impersonal. How breadth behaves.
-  4. Diagnostics — first person. 4-6 lived observations.
-  5. Fixes — 4-5 before/after changes.
-  6. Reframe — ONE SENTENCE, STANDALONE, before the checklist.
-  7. Checklist — FIVE QUESTIONS woven into one or two short
-     paragraphs. Each begins with 'Can I' or 'Do I' or 'Have I.'
-     MANDATORY. The article is incomplete without it.
-  8. CTA — one paragraph, verbatim from the payload.
+  3. Mechanism — impersonal. How the named regimes behave.
+  4. Diagnostics — first person. 4-6 observations drawn from
+     READINGS and REGIMES.
+  5. Fixes — 4-5 before/after changes drawn ONLY from
+     ACTIVE_RULES.
+  6. Reframe — ONE SENTENCE, STANDALONE. Impersonal.
+  7. End — end on the reframe. No checklist, no CTA, no URL.
 
-WORD BUDGET — you MUST write at least 600 words total:
-
-  Opening        80-120 words
-  Problem        50-70 words
-  Mechanism     120-180 words
-  Diagnostics    4-6 items, 60-90 words each
-  Fixes          4-5 items, 60-90 words each
-  Reframe        15-25 words
-  Checklist      80-120 words
-  CTA            40-60 words
-
-Total minimum: 500. Aim for 700. If your draft is under 600,
-extend the mechanism, the diagnostics, and the fixes.
+WORD BUDGET — aim for 700 words. If your draft is under 600,
+extend the mechanism and the diagnostics.
 
 FIXES ARE BEFORE/AFTER. Every fix in the fixes beat begins with
-'I used to' or 'I now.' Never a bare imperative. Wrong: 'Reduce
-the NQ exposure.' Right: 'I used to keep full NQ exposure. Now
-I reduce it.'
+'I used to' or 'I now.' Never a bare imperative.
 
 VOICE. The mechanism is impersonal. The hook, diagnostics, and
 fixes are FIRST PERSON. Never 'you,' 'your,' 'you can.'
 
-CHECKLIST IS MANDATORY. The piece ENDS with FIVE QUESTIONS
-woven into one or two short paragraphs. Each question begins
-with 'Can I' or 'Do I' or 'Have I.' Do NOT skip this beat.
-The article is incomplete without it.
-
-REFRAME IS STANDALONE. One sentence. Before the checklist.
-Impersonal. Not embedded in the problem or mechanism.
-
-NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. The checklist begins with 'Can I...' — nothing above it. Continuous prose. No headings, no bullets. End with this CTA:
-
-{cta_text}
+NO LABELS. Do NOT write '**Checklist**' or any bold label. Do
+NOT write 'Checklist:' or any beat name as a header. Continuous
+prose. No headings, no bullets. Do NOT end with a CTA, a URL, an
+email address, or a marketing line.
 """
 
 
@@ -105,6 +93,10 @@ Here is what the trader tracks, in their own words. The only
 source of facts.
 
 {conditions_block}
+
+STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from this block.
+
+{skeleton}
 
 Write the F2 Process Diary now.
 
@@ -121,9 +113,7 @@ before/after: 'I used to X. Now I Y.'
 WORD BUDGET — 600+ words. Extend the mechanism and the
 diagnostics if under.
 
-NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. The checklist begins with 'Can I...' — nothing above it. Continuous prose. No headings, no bullets. End with this CTA:
-
-{cta_text}
+NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. Continuous prose. No headings, no bullets. Do NOT end with a CTA, a URL, an email address, or a marketing line.
 """
 
 
@@ -136,6 +126,10 @@ Here is what the trader tracks, in their own words. The only
 source of facts.
 
 {conditions_block}
+
+STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from this block.
+
+{skeleton}
 
 Write the F3 Structural Explainer now.
 
@@ -154,9 +148,7 @@ FIXES ARE BEFORE/AFTER. Every fix begins with 'I used to' or
 WORD BUDGET — 600+ words. Extend the mechanism and the
 diagnostics if under.
 
-NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. The checklist begins with 'Can I...' — nothing above it. Continuous prose. No headings, no bullets. End with this CTA:
-
-{cta_text}
+NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. Continuous prose. No headings, no bullets. Do NOT end with a CTA, a URL, an email address, or a marketing line.
 """
 
 
@@ -221,21 +213,17 @@ async def generate(
     )
     target_words = target_words_for(subblock["slug"], register, tier)
 
-    from packages.core.config import get_settings as _gs
-    _url = _gs().product_url
-    cta_text = (
-        "I built a regime-tracking sheet that logs candidate counts, "
-        "realized volatility, and average range alongside my trades — "
-        "so I can see which environments my rules work in. If that's "
-        f"useful, email me and I'll send it: {_url}"
-    )
+    # Build the structured skeleton the prompt quotes. This is
+    # the only source of numbers for the article; the validator
+    # checks the body against it.
+    skeleton = await build_conditions_skeleton(session, org_id, mc)
 
     # Rotate the form: F1 regime report, F2 process diary,
     # F3 structural explainer.
     form_choice = _FORMS[tier_index % len(_FORMS)]
     user_prompt = _TEMPLATES[form_choice].format(
         conditions_block=conditions_block,
-        cta_text=cta_text,
+        skeleton=skeleton,
     )
 
     post = await call_llm_json_verified(
@@ -257,7 +245,6 @@ async def generate(
             "form": form_choice,
             "register": register,
             "tier": tier,
-            "cta_text": cta_text,
             "market_conditions": mc,
         },
         target_words=target_words,
@@ -278,6 +265,21 @@ async def generate(
         log.warning("market_condition.post_process_failed",
                     error=str(_pp)[:200])
 
+    # Validate against the skeleton. Separate from
+    # article_validator.validate(), which is trade-centric and would
+    # mis-fire on a regime note.
+    reasons = validate_market_condition(post.body, skeleton)
+    if reasons:
+        log.warning(
+            "market_condition.validator_rejected",
+            slug=subblock["slug"],
+            reasons=reasons,
+        )
+        post.verification_ok = False
+        post.unsupported_claims = list(
+            getattr(post, "unsupported_claims", None) or []
+        ) + reasons
+
     post_id = await persist_post(
         session,
         org_id=org_id,
@@ -287,7 +289,6 @@ async def generate(
             "form": form_choice,
             "register": register,
             "tier": tier,
-            "cta_text": cta_text,
         },
         source_urls=[],
         symbols=[],
