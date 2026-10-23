@@ -108,6 +108,24 @@ class OpenRouterProvider(ModelProvider):
             "OPENROUTER_REASONING_EFFORT", "low"
         )
 
+        # Qwen 3.x on OpenRouter uses a separate `reasoning` config
+        # block that caps the hidden thinking budget. Without it,
+        # qwen burns 10,000+ tokens on reasoning and returns an
+        # empty response with finish_reason=length — the
+        # reasoning_effort field is not honored by qwen.
+        _model_lower = (model or "").lower()
+        if "qwen" in _model_lower or "nex-agi" in _model_lower:
+            payload["reasoning"] = {
+                "effort": _os.environ.get(
+                    "OPENROUTER_REASONING_EFFORT", "low"
+                ),
+                "max_tokens": int(
+                    _os.environ.get(
+                        "OPENROUTER_REASONING_MAX_TOKENS", "1024"
+                    )
+                ),
+            }
+
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 r = await client.post(
@@ -146,10 +164,23 @@ class OpenRouterProvider(ModelProvider):
             raise ProviderError(f"OpenRouter malformed response: {data}") from exc
 
         usage = data.get("usage") or {}
+
+        # Empty body with finish_reason=length means the model
+        # burned the entire budget on hidden reasoning and produced
+        # nothing visible. This is a failure, not a success —
+        # rotate to the next credential.
+        _out_tokens = usage.get("completion_tokens")
+        _text_str = (text or "").strip()
+        if not _text_str or finish_reason == "length":
+            raise CredentialsExhaustedError(
+                f"OpenRouter empty response: out_tokens={_out_tokens} "
+                f"finish_reason={finish_reason} text_len={len(_text_str)}"
+            )
+
         return CompletionResult(
             text=text,
             input_tokens=usage.get("prompt_tokens"),
-            output_tokens=usage.get("completion_tokens"),
+            output_tokens=_out_tokens,
             raw={},
             finish_reason=finish_reason,
         )

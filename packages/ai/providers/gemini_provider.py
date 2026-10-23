@@ -149,11 +149,27 @@ class GeminiProvider(ModelProvider):
                     if t:
                         text += t
             if not text:
-                # Surface the real reason — do NOT mask it
+                # Empty text with finish_reason=MAX_TOKENS (or
+                # LENGTH) means the model burned the budget on
+                # hidden reasoning and produced nothing visible.
+                # That is a quota-style failure — rotate to the
+                # next credential instead of crashing. Any other
+                # empty-text case (safety block, malformed
+                # response) stays a hard ProviderError.
                 finish = "unknown"
                 if cands:
                     finish = str(getattr(cands[0], "finish_reason", "unknown"))
                 prompt_feedback = getattr(response, "prompt_feedback", None)
+                _finish_lower = finish.lower()
+                _is_length = (
+                    "max_tokens" in _finish_lower
+                    or "length" in _finish_lower
+                )
+                if _is_length:
+                    raise CredentialsExhaustedError(
+                        f"Gemini empty response (finish_reason={finish}) "
+                        f"— reasoning budget exhausted, rotating"
+                    )
                 raise ProviderError(
                     f"Gemini returned no text "
                     f"(finish_reason={finish}, "
