@@ -40,6 +40,17 @@ MUST come from this block. Do not invent a metric.
 
 {skeleton}
 
+If the skeleton has a RULE_CONFLICT block, state which stop policy
+governs — the tightened stop or the suspension — and do not present
+both as active in the same article.
+
+If the skeleton has a DERIVED ANALYSIS block, state the win rate,
+the expectancy per trade, and the equity impact. If it carries a
+WARNING, reconcile the drawdown against the 1.5% per-trade budget in
+plain words: either the budget was not enforced or the sample
+includes pre-rule trades. Say which. Do not report the raw trade
+counts and stop there.
+
 Write the F1 Regime Report now.
 
   - Name the regime states the skeleton reports: which regimes
@@ -98,6 +109,17 @@ STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from
 
 {skeleton}
 
+If the skeleton has a RULE_CONFLICT block, state which stop policy
+governs — the tightened stop or the suspension — and do not present
+both as active in the same article.
+
+If the skeleton has a DERIVED ANALYSIS block, state the win rate,
+the expectancy per trade, and the equity impact. If it carries a
+WARNING, reconcile the drawdown against the 1.5% per-trade budget in
+plain words: either the budget was not enforced or the sample
+includes pre-rule trades. Say which. Do not report the raw trade
+counts and stop there.
+
 Write the F2 Process Diary now.
 
   - My scan returned [result] this week.
@@ -130,6 +152,17 @@ source of facts.
 STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from this block.
 
 {skeleton}
+
+If the skeleton has a RULE_CONFLICT block, state which stop policy
+governs — the tightened stop or the suspension — and do not present
+both as active in the same article.
+
+If the skeleton has a DERIVED ANALYSIS block, state the win rate,
+the expectancy per trade, and the equity impact. If it carries a
+WARNING, reconcile the drawdown against the 1.5% per-trade budget in
+plain words: either the budget was not enforced or the sample
+includes pre-rule trades. Say which. Do not report the raw trade
+counts and stop there.
 
 Write the F3 Structural Explainer now.
 

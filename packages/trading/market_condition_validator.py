@@ -437,6 +437,56 @@ async def load_frozen_skeleton(session, post_id: str) -> str:
     return (payload or {}).get("skeleton", "") or ""
 
 
+def _check_derived_analysis_stated(body: str, skeleton: str) -> list[str]:
+    """If the skeleton carries a DERIVED ANALYSIS block, the article
+    must state the win rate and the equity impact. The reviewer's #1
+    omission was reporting raw counts (678 trades, 239/439) and never
+    computing win rate, expectancy, or drawdown.
+    """
+    if "DERIVED ANALYSIS" not in skeleton:
+        return []
+    reasons: list[str] = []
+    # pull win_rate_pct and equity_impact_pct out of the skeleton
+    m_wr = re.search(r"win_rate_pct:\s*([\d.]+)%", skeleton)
+    m_dd = re.search(r"equity_impact_pct:\s*(-?[\d.]+)%", skeleton)
+    if m_wr:
+        wr = m_wr.group(1)
+        # accept "35.25" or "35.2" or "35%"
+        if not re.search(re.escape(wr[:4]) + r"\d*\s*%", body or ""):
+            reasons.append(
+                f"DERIVED ANALYSIS present but the article does not "
+                f"state the win rate ({wr}%)"
+            )
+    if m_dd:
+        dd = m_dd.group(1).lstrip("-")
+        if not re.search(re.escape(dd[:3]) + r"\d*\s*%", body or ""):
+            reasons.append(
+                f"DERIVED ANALYSIS present but the article does not "
+                f"state the equity impact ({dd}%)"
+            )
+    return reasons
+
+
+def _check_rule_conflict_resolved(body: str, skeleton: str) -> list[str]:
+    """If the skeleton flags a stop tighten/suspend conflict, the
+    article must not present both as active."""
+    if "RULE_CONFLICT" not in skeleton:
+        return []
+    b = (body or "").lower()
+    # `.` matches any char except newline, including the decimal
+    # point in "0.75%" — excluding periods broke the match on the
+    # exact sentence the check exists to catch.
+    tightens = bool(re.search(r"tighten\b.{0,40}?\bstop", b))
+    suspends = bool(re.search(r"suspend\b.{0,40}?\bstop", b))
+    if tightens and suspends:
+        return [
+            "RULE_CONFLICT present: the article presents both a "
+            "tightened stop and a suspended stop as active — state "
+            "which policy governs"
+        ]
+    return []
+
+
 def validate_market_condition(
     body: str,
     skeleton: str,
@@ -452,6 +502,8 @@ def validate_market_condition(
     reasons.extend(_check_rules_from_active(body, skeleton))
     reasons.extend(_check_no_persistence_claim(body, skeleton))
     reasons.extend(_check_linkage_numbers(body, skeleton))
+    reasons.extend(_check_derived_analysis_stated(body, skeleton))
+    reasons.extend(_check_rule_conflict_resolved(body, skeleton))
     reasons.extend(_check_no_checklist(body))
     reasons.extend(_check_no_cta(body))
     return reasons
