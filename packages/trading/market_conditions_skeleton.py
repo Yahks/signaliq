@@ -262,6 +262,18 @@ async def _trade_linkage(
         if s:
             freq[s] = freq.get(s, 0) + 1
     top = sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    # Per-symbol P&L, so the article can say which names lost.
+    per_sym: dict[str, dict[str, float]] = {}
+    for t in trades:
+        sym = str(t.get("symbol") or "")
+        if not sym:
+            continue
+        d = per_sym.setdefault(sym, {"n": 0, "net": 0.0})
+        d["n"] += 1
+        d["net"] += float(t.get("result") or 0)
+    per_sym_top = sorted(
+        per_sym.items(), key=lambda kv: kv[1]["net"]
+    )[:5]   # worst first
     return {
         "window_days": TRADE_LINKAGE_DAYS,
         "start": start.date().isoformat(),
@@ -271,6 +283,7 @@ async def _trade_linkage(
         "losses": losses,
         "net": net,
         "top_symbols": top,
+        "per_symbol": per_sym_top,
     }
 
 
@@ -395,10 +408,12 @@ async def build_conditions_skeleton(
             if "tighten" in rule and "stop" in rule and "suspend" in rule and "stop" in rule:
                 lines.append(
                     f"  [{s['name']}] the tightened 0.5% stop REPLACES the "
-                    f"0.75% stop-loss rule. The 0.75% rule is NOT suspended — "
-                    f"it is superseded by the tighter stop. Do not write "
-                    f"'suspend' for this regime; do not present the two as "
-                    f"active together."
+                    f"0.75% stop-loss rule AND supersedes the 1.75xATR stop "
+                    f"in this regime. The 0.75% rule is NOT suspended — it "
+                    f"is superseded. The 1.75xATR stop governs in normal "
+                    f"volatility; the 0.5% fixed stop governs in "
+                    f"Compressed-Volatility. State which stop governs in "
+                    f"which regime; do not write 'suspend'."
                 )
         lines.append("")
 
@@ -426,6 +441,9 @@ async def build_conditions_skeleton(
                  "in the window ending at the snapshot date):")
     lines.append(f"  window: {linkage['start']} → {linkage['as_of']} "
                  f"({linkage['window_days']} days)")
+    lines.append(f"  window_start: {linkage['start']}")
+    lines.append(f"  window_end: {linkage['as_of']}"
+                 f"  (state both dates in the article)")
     if linkage["n_trades"] == 0:
         lines.append("  n_trades: 0 (no article-linked trades in the "
                      "window — say so; do not invent a sample)")
@@ -437,6 +455,12 @@ async def build_conditions_skeleton(
         if linkage["top_symbols"]:
             _ts = ", ".join(f"{s} ({n})" for s, n in linkage["top_symbols"])
             lines.append(f"  top symbols: {_ts}")
+        if linkage.get("per_symbol"):
+            lines.append("  per_symbol_pnl (worst first; state which names "
+                         "lost):")
+            for _sym, _d in linkage["per_symbol"]:
+                lines.append(f"    {_sym}: {int(_d['n'])} trades, "
+                             f"net ${_d['net']:+.2f}")
 
         # Derived analysis — the reviewer's top omission. Raw
         # counts are not analysis; win rate, expectancy, and
@@ -451,9 +475,24 @@ async def build_conditions_skeleton(
         lines.append("  DERIVED ANALYSIS (state these; do not stop at "
                      "the raw counts):")
         lines.append(f"    win_rate_pct: {_wr:.2f}%")
-        lines.append(f"    expectancy_per_trade: ${_exp:+.2f}")
+        # Expectancy at full precision, not rounded: 678 trades at
+        # -$163.48 quoted against a net of -$110,842.73 implies
+        # -$110,839.44 (off $3.29). State the exact quotient.
+        lines.append(f"    expectancy_per_trade: ${_net / _n:+.4f}"
+                     f" (quote to 2dp: ${_net / _n:+.2f})")
         lines.append(f"    equity_impact_pct: {_dd:+.1f}% of $200,000 "
                      f"starting equity")
+        # R per trade: net / cumulative planned risk at 1.5% per trade
+        _cum_risk = _n * 0.015 * 200000.0
+        _r_per_trade = (_net / _cum_risk) if _cum_risk else 0.0
+        lines.append(f"    r_per_trade: {_r_per_trade:+.4f}R "
+                     f"(net / cumulative 1.5% planned risk)")
+        # 95% CI on the win rate (normal approximation)
+        _se = ((_wr / 100.0) * (1 - _wr / 100.0) / _n) ** 0.5 if _n else 0.0
+        _ci = 1.96 * _se * 100.0
+        lines.append(f"    win_rate_95ci_pp: +/- {_ci:.1f}pp "
+                     f"(n={_n}; state the interval or say the edge is "
+                     f"statistically conclusive)")
         if _dd <= -20.0:
             lines.append("    WARNING: the window's net loss exceeds 20% "
                          "of starting equity. State the drawdown plainly "
@@ -461,13 +500,24 @@ async def build_conditions_skeleton(
                          "budget — a budget that size cannot produce a "
                          "drawdown this large without either not being "
                          "enforced or the sample including pre-rule "
-                         "trades. Say which.")
+                         "trades. Say which — pick one branch and commit "
+                         "to it: 'the budget was not enforced in this "
+                         "sample' OR 'the sample includes pre-rule trades'. "
+                         "Do not write 'either/or'.")
         lines.append("  note: these are synthetic-generated trades that "
                      "appeared in articles — describe them as 'trades "
                      "that appeared in my notes', not as trades you "
                      "personally executed. This is the generated trade "
                      "universe, not the one-or-two example trades in the "
                      "notes; do not imply they are the same strategy.")
+    lines.append("")
+
+    # ── UNIT DEFINITION ──
+    lines.append("UNIT_DEFINITION (state this when you write 'unit'):")
+    lines.append("  1 unit = the full position at the 1.5% risk budget "
+                 "on $200,000 equity. 0.5 unit = half that position. "
+                 "3 units = the concurrent-position cap. Do not use "
+                 "'unit' without this definition.")
     lines.append("")
 
     # ── LIMITS ──
