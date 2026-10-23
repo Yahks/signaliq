@@ -362,6 +362,31 @@ async def build_conditions_skeleton(
         lines.append("  (none — no regime is currently active)")
     lines.append("")
 
+    # ── RULE CONFLICTS ──
+    # The trader's stored adjustments can contain mutually
+    # exclusive rules. The clearest case: "tighten stops to 0.5%"
+    # and "suspend the 0.75% stop-loss rule" in the same regime —
+    # a stop cannot be tightened and suspended at once. Surface it
+    # so the article resolves it (one stop policy governs) rather
+    # than quoting both.
+    _conflicts: list[str] = []
+    for s in active:
+        rule = ADJUSTMENTS_BY_REGIME.get(s["name"], "").lower()
+        _tightens = ("tighten" in rule and "stop" in rule)
+        _suspends = ("suspend" in rule and "stop" in rule)
+        if _tightens and _suspends:
+            _conflicts.append(
+                f"{s['name']}: the stored adjustment both tightens "
+                f"stops and suspends the stop-loss rule — these are "
+                f"mutually exclusive. State which one governs; do "
+                f"not present both as active."
+            )
+    if _conflicts:
+        lines.append("RULE_CONFLICT (resolve before writing):")
+        for c in _conflicts:
+            lines.append(f"  - {c}")
+        lines.append("")
+
     # ── INACTIVE ──
     lines.append("INACTIVE_REGIMES (name these as NOT in force; do not "
                  "apply their rules):")
@@ -397,10 +422,37 @@ async def build_conditions_skeleton(
         if linkage["top_symbols"]:
             _ts = ", ".join(f"{s} ({n})" for s, n in linkage["top_symbols"])
             lines.append(f"  top symbols: {_ts}")
+
+        # Derived analysis — the reviewer's top omission. Raw
+        # counts are not analysis; win rate, expectancy, and
+        # drawdown are, and the article must state them.
+        _n = linkage["n_trades"]
+        _w = linkage["wins"]
+        _l = linkage["losses"]
+        _net = linkage["net"]
+        _wr = (_w / _n * 100.0) if _n else 0.0
+        _exp = (_net / _n) if _n else 0.0
+        _dd = (_net / 200000.0 * 100.0) if _n else 0.0
+        lines.append("  DERIVED ANALYSIS (state these; do not stop at "
+                     "the raw counts):")
+        lines.append(f"    win_rate_pct: {_wr:.2f}%")
+        lines.append(f"    expectancy_per_trade: ${_exp:+.2f}")
+        lines.append(f"    equity_impact_pct: {_dd:+.1f}% of $200,000 "
+                     f"starting equity")
+        if _dd <= -20.0:
+            lines.append("    WARNING: the window's net loss exceeds 20% "
+                         "of starting equity. State the drawdown plainly "
+                         "and reconcile it against the 1.5% per-trade "
+                         "budget — a budget that size cannot produce a "
+                         "drawdown this large without either not being "
+                         "enforced or the sample including pre-rule "
+                         "trades. Say which.")
         lines.append("  note: these are synthetic-generated trades that "
                      "appeared in articles — describe them as 'trades "
                      "that appeared in my notes', not as trades you "
-                     "personally executed.")
+                     "personally executed. This is the generated trade "
+                     "universe, not the one-or-two example trades in the "
+                     "notes; do not imply they are the same strategy.")
     lines.append("")
 
     # ── LIMITS ──
