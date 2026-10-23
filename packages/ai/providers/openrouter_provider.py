@@ -158,13 +158,22 @@ class OpenRouterProvider(ModelProvider):
             _body = r.text[:400].lower()
             _is_transient = (
                 r.status_code == 429
+                or r.status_code == 402   # credit exhausted on this account
                 or r.status_code == 503
                 or "rate limit" in _body
                 or "resource_exhausted" in _body
                 or "quota exceeded" in _body
+                or "requires more credits" in _body
                 or "high demand" in _body
                 or "unavailable" in _body
             )
+            # 402 = this credential's account cannot afford the
+            # request ("This request requires more credits, or fewer
+            # max_tokens"). Like 429, it is a credential-level
+            # failure: rotate rather than abort. If every OpenRouter
+            # credential shares one account, the next attempt 402s
+            # too and the router reports pool exhaustion — which is
+            # the correct outcome, not a crash.
             if _is_transient:
                 raise CredentialsExhaustedError(
                     f"OpenRouter HTTP {r.status_code}: {r.text[:200]}"
