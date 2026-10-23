@@ -518,6 +518,24 @@ async def ensure_trades_for(
         )
         _exit_slip = (_actual_exit - _intended_exit) * _sign
 
+        # ── Weekly drawdown breaker (G7) ──
+        # The daily cap halts one bad day; the per-name rolling cap
+        # covers one name. Neither halts 55 consecutive -1% days,
+        # which is how a -55% slide happens. Sum realized P&L over
+        # the trailing 7 days once, here, and skip all new entries
+        # if it breaches the weekly limit.
+        _weekly_limit_pct = float(
+            strategy.get("weekly_drawdown_limit_pct", 0.03)
+        )
+        _weekly_limit_dollars = _account_equity * _weekly_limit_pct
+        _wk_row = (await session.execute(sql_text("""
+            SELECT COALESCE(SUM(result), 0) AS pnl
+            FROM trade_log
+            WHERE org_id = :oid AND deleted_at IS NULL
+              AND traded_at >= now() - interval '7 days'
+        """), {"oid": org_id})).first()
+        _weekly_realized_pnl = float(_wk_row[0]) if _wk_row else 0.0
+
         # ── Aggregate exposure check ──
         # Prevent two full-budget losses on the same name in one
         # day. Query existing trades on this symbol and date,
@@ -602,6 +620,16 @@ async def ensure_trades_for(
                 f"+ batch=${_batch_losses_today:.2f} "
                 f"+ new=${_new_loss:.2f} "
                 f"< limit=${-_daily_limit_dollars:.2f}"
+            )
+
+        # Cap 2b: weekly account drawdown breaker.
+        if _skip_reason is None and (
+            _weekly_realized_pnl < -_weekly_limit_dollars
+        ):
+            _skip_reason = (
+                f"weekly_drawdown_breaker: trailing_7d="
+                f"${_weekly_realized_pnl:.2f} < "
+                f"-limit=${_weekly_limit_dollars:.2f}"
             )
 
         # Cap 2b: rolling per-name realized loss.
