@@ -87,6 +87,11 @@ _SIZE_CHANGE = {
 # Distinctive mechanism keywords. A reframe must share at least one
 # with the article's trade setups or the analysis block, else it is
 # not about this article.
+# Retained for documentation: the concept vocabulary a reframe
+# typically draws on. No longer enforced — the reframe gate is
+# shape-based (single sentence, impersonal); see
+# _check_reframe_shape. Kept so a future change can reference
+# the list without retyping it.
 _REFRAME_KEYWORDS = {
     "stop", "atr", "clearance", "contract", "contracts", "size",
     "sizing", "breakout", "pullback", "regime", "exit", "entry",
@@ -123,18 +128,6 @@ def _tokens(text: str) -> set[str]:
     # Normalize hyphens to spaces so "super-linear" → {super, linear}.
     norm = (text or "").lower().replace("-", " ")
     return set(re.findall(r"[a-z]+", norm))
-
-
-def _stems(text: str) -> set[str]:
-    """Tokens with a light trailing-s stem so plurals and
-    third-person verbs match their base form in the reframe
-    check: 'risks'→'risk', 'stops'→'stop', 'filters'→'filter'.
-    Only strips a single trailing 's' from tokens longer than
-    three characters, so 'atr' and 'sizing' are unaffected."""
-    out = set()
-    for t in _tokens(text):
-        out.add(t[:-1] if len(t) > 3 and t.endswith("s") else t)
-    return out
 
 
 def _similar(a: str, b: str) -> float:
@@ -712,46 +705,54 @@ def _natural_date_short(d) -> str:
         return ""
 
 
-def _check_reframe_relevance(
+def _check_reframe_shape(
     body: str, trades: list[dict[str, Any]], analysis: str,
     violations_text: str = "",
 ) -> list[str]:
-    """The reframe must be about the rule the article is about.
+    """The reframe must be ONE impersonal standalone sentence.
 
-    The source of truth is the RULE VIOLATIONS block from the
-    skeleton — not the setups, which may not mention ATR even
-    when the trade violated ATR.
+    The previous version of this check required the reframe to
+    contain a term from a fixed vocabulary (stop, ATR, sizing,
+    rule, ...). That rejected good reframes whose wording fell
+    outside the list — "A disciplined process protects the
+    capital base, but it cannot turn an uncertain setup into a
+    profitable trade" shares none of the terms, yet is exactly
+    the single-trade-vs-edge distinction the beat is for. Three
+    consecutive articles were rejected on vocabulary, and the
+    vocabulary test never uniquely caught a bad reframe.
+
+    The real failure modes are structural, not lexical:
+      - the extractor grabbed a fixes paragraph (multi-sentence,
+        first person) instead of the reframe
+      - the reframe is absent
+
+    This check enforces: present, exactly one sentence, and
+    impersonal (no I/my/me/we). The semantic checks in
+    _semantic_reframe_violation still catch near-verbatim reuse
+    and the forbidden position-size mechanism.
     """
     reframe = _extract_reframe(body)
     if not reframe:
         return ["article has no extractable reframe block"]
-    reframe_kw = _stems(reframe) & {_k[:-1] if len(_k) > 3 and _k.endswith("s") else _k for _k in _REFRAME_KEYWORDS}
-    if not reframe_kw:
+
+    # Single sentence: no sentence-ending punctuation before the
+    # end of the string.
+    stripped = reframe.strip()
+    inner = stripped[:-1] if stripped and stripped[-1] in ".!?" else stripped
+    if re.search(r"[.!?]\s", inner):
         return [
-            "reframe references none of the article's mechanism terms "
-            "(stop, ATR, clearance, sizing, regime, rule, filter)"
+            "reframe is more than one sentence; a reframe is a "
+            "single standalone line"
         ]
-    source_tokens: set[str] = set()
-    if violations_text:
-        source_tokens |= _tokens(violations_text)
-    source_tokens |= _tokens(analysis)
-    for t in trades:
-        source_tokens |= _tokens(t.get("setup") or "")
-    # The reframe must use at least one concept from the allowed
-    # vocabulary. It does NOT need to echo a word from the trade
-    # setups — the whole point of a reframe is to generalize
-    # beyond the specific trade ("this loss is about drawdown,
-    # not stop distance" introduces a portfolio-level concept
-    # the setups never mention). Requiring the reframe to
-    # reuse the source's exact words defeats the reframe.
-    if reframe_kw:
-        return []
-    source_kw = source_tokens & _REFRAME_KEYWORDS
-    return [
-        f"reframe uses none of the allowed vocabulary; "
-        f"reframe keywords {sorted(reframe_kw)}, "
-        f"allowed vocabulary {sorted(_REFRAME_KEYWORDS)}"
-    ]
+
+    # Impersonal: no first-person pronouns.
+    if re.search(r"\b(I|me|my|mine|we|our|us)\b", stripped):
+        return [
+            "reframe is first person; a reframe is an impersonal "
+            "standalone truth"
+        ]
+
+    return []
 
 
 def _check_fabricated_atr_diagnostic(
@@ -1106,7 +1107,7 @@ def validate(
     reasons.extend(_check_irrelevant_rule(body, trades))
     reasons.extend(_check_trade_table(body, trades))
     reasons.extend(_check_diagnostics_beat(body))
-    reasons.extend(_check_reframe_relevance(body, trades, analysis, violations_text))
+    reasons.extend(_check_reframe_shape(body, trades, analysis, violations_text))
     reasons.extend(_check_fabricated_atr_diagnostic(body, trades))
     reasons.extend(_check_register_notation(body))
     reasons.extend(_check_checklist_form(body))
