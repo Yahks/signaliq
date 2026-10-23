@@ -90,13 +90,15 @@ class OpenRouterProvider(ModelProvider):
         # without a code change.
         import os as _os
         OPENROUTER_MAX_TOKENS = int(
-            _os.environ.get("OPENROUTER_MAX_TOKENS", "4000")
+            _os.environ.get("OPENROUTER_MAX_TOKENS", "10000")
         )
-        _effective_max = (
-            max_tokens if max_tokens is not None else OPENROUTER_MAX_TOKENS
-        )
-        if _effective_max > OPENROUTER_MAX_TOKENS:
-            _effective_max = OPENROUTER_MAX_TOKENS
+        # Force at least OPENROUTER_MAX_TOKENS regardless of what
+        # the router passes. Reasoning models burn the budget on
+        # hidden thought before visible output; a 2000-token cap
+        # produces finish_reason=length with empty content (observed
+        # with qwen/qwen3.8-27b during the CPAY article run).
+        _requested = max_tokens if max_tokens is not None else OPENROUTER_MAX_TOKENS
+        _effective_max = max(_requested, OPENROUTER_MAX_TOKENS)
         payload["max_tokens"] = _effective_max
 
         if response_format_json:
