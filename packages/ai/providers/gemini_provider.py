@@ -17,6 +17,7 @@ from packages.ai.providers.base import (
     ModelProvider,
     ProviderError,
 )
+from packages.core.error import CredentialsExhaustedError
 from packages.core.config import get_settings
 
 
@@ -103,6 +104,27 @@ class GeminiProvider(ModelProvider):
         try:
             response = await asyncio.to_thread(_call)
         except Exception as exc:
+            # Detect transient provider failures so the router
+            # rotates to the next credential instead of aborting
+            # the entire generation. Two classes:
+            #   - 429 / RESOURCE_EXHAUSTED — rate limit
+            #   - 503 / UNAVAILABLE / "high demand" — service down
+            # Both mean "this credential can't serve right now,
+            # try another." The router treats them identically.
+            _msg = str(exc).lower()
+            _is_transient = (
+                "429" in _msg
+                or "resource_exhausted" in _msg
+                or "quota exceeded" in _msg
+                or "rate limit" in _msg
+                or "503" in _msg
+                or "unavailable" in _msg
+                or "high demand" in _msg
+            )
+            if _is_transient:
+                raise CredentialsExhaustedError(
+                    f"Gemini transient failure: {str(exc)[:200]}"
+                ) from exc
             raise ProviderError(f"Gemini call failed: {exc}") from exc
 
         # Robust text extraction. Gemini 3.x may return:

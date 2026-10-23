@@ -153,7 +153,10 @@ def _allowed_dollars(
     performance: dict[str, Any] | None = None,
     skeleton_text: str = "",
 ) -> set[int]:
-    allowed: set[int] = set()
+    # $0 is always a legitimate claim (no slippage, no cost,
+    # no impact). The model writes it when slippage is zero.
+    # Never reject it as fabricated.
+    allowed: set[int] = {0}
     for t in trades:
         r = t.get("result")
         if r is not None:
@@ -904,6 +907,95 @@ def _check_atr_attribution(
 
 # ── Main entry point ─────────────────────────────────────────────
 
+
+def _check_batch_stats_match(
+    body: str, skeleton_text: str,
+) -> list[str]:
+    """Batch stats in the article must match the skeleton's
+    BATCH PERFORMANCE block. The model has fabricated favorable
+    batch stats (turned a 20% win rate into 40%, positive
+    expectancy into negative, etc.)."""
+    if not skeleton_text:
+        return []
+    # Extract the BATCH PERFORMANCE block from the skeleton
+    m = re.search(
+        r"BATCH PERFORMANCE.*?(?=\n\n[A-Z]|\Z)",
+        skeleton_text, re.DOTALL,
+    )
+    if not m:
+        return []
+    block = m.group(0)
+
+    # Parse each field's value from the block
+    def _extract(key: str) -> str | None:
+        mm = re.search(
+            rf"^\s*{key}:\s*([^\n]+)",
+            block, re.MULTILINE,
+        )
+        return mm.group(1).strip() if mm else None
+
+    win_rate_src = _extract("win_rate")
+    exp_src = _extract("expectancy_per_trade")
+    pf_src = _extract("profit_factor")
+    equity_src = _extract("current_equity")
+    net_pnl_src = _extract("net_pnl_dollars")
+
+    reasons: list[str] = []
+
+    # Check win_rate: if the article says "win rate was X%" or
+    # "win rate of X%", the value must match the skeleton's.
+    if win_rate_src:
+        try:
+            expected = float(win_rate_src.replace("%", "").strip())
+        except ValueError:
+            expected = None
+        if expected is not None:
+            for m2 in re.finditer(
+                r"win[\s-]*rate\s*(?:was|of|at|is)?\s*(\d+(?:\.\d+)?)\s*%",
+                body, re.IGNORECASE,
+            ):
+                actual = float(m2.group(1))
+                if abs(actual - expected) > 0.1:
+                    reasons.append(
+                        f"batch stat mismatch: win_rate in article "
+                        f"is {actual}%, skeleton says {expected}%"
+                    )
+
+    # Check expectancy: "expectancy ... $X" or "expectancy of $X"
+    if exp_src:
+        em = re.search(r"([+-]?\$[+-]?[\d,\.]+)", exp_src)
+        if em:
+            try:
+                expected = float(
+                    em.group(1).replace("$", "").replace(",", "")
+                )
+            except ValueError:
+                expected = None
+            if expected is not None:
+                for m2 in re.finditer(
+                    r"expectancy[^.]{0,80}?([+-]?\$[+-]?[\d,\.]+)",
+                    body, re.IGNORECASE,
+                ):
+                    actual = float(
+                        m2.group(1).replace("$", "").replace(",", "")
+                    )
+                    # Sign matters — do not accept the sign flip
+                    if actual * expected < 0:
+                        reasons.append(
+                            f"batch stat mismatch: expectancy sign "
+                            f"flipped (article {actual:+.2f}, "
+                            f"skeleton {expected:+.2f})"
+                        )
+                    elif abs(actual - expected) > 1.0:
+                        reasons.append(
+                            f"batch stat mismatch: expectancy "
+                            f"(article {actual:+.2f}, skeleton "
+                            f"{expected:+.2f})"
+                        )
+
+    return reasons
+
+
 def validate(
     body: str,
     analysis: str,
@@ -937,6 +1029,11 @@ def validate(
         # fabrication (0.9% when nothing supports it) still fails.
         if not any(abs(p - a) < 0.05 for a in allowed_p):
             reasons.append(f"unsourced percent: {p}%")
+
+    # 2b. Batch stats must match the skeleton's BATCH PERFORMANCE
+    # block. Catches fabricated win rates and expectancy signs.
+    if skeleton_text:
+        reasons.extend(_check_batch_stats_match(body, skeleton_text))
 
     # 3. The reframe must not be a variant of a forbidden mechanism.
     reframe_reason = _semantic_reframe_violation(body)

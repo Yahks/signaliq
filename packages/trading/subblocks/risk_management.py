@@ -147,18 +147,32 @@ THE NINE BEATS, in order:
    gap between planned and realized.
 
    BATCH PERFORMANCE. The skeleton has a BATCH PERFORMANCE
-   block: win_rate, expectancy_per_trade, profit_factor,
-   net_r_aggregate, avg_win_r, avg_loss_r. In ONE of the
-   fixes, state the batch-level numbers. Examples:
-     - "Across the last five trades my win rate was 40% and
-        expectancy was -$84/trade — a losing edge, not a
-        winning one."
-     - "The R-profile looks better than the dollar P&L
-        because winners averaged +1.63R while losers cut at
-        -0.82R, but the win rate is too low to overcome the
-        asymmetry."
-   Do NOT paraphrase the numbers. Quote them exactly from
-   the BATCH PERFORMANCE block.
+   block. In ONE sentence, quote two or three numbers from
+   it VERBATIM. The block has: win_rate, expectancy_per_trade,
+   profit_factor, net_r_sum, net_r_mean, avg_win_r,
+   avg_loss_r, net_pnl_dollars, current_equity.
+
+   HARD RULE: copy the numbers exactly. Do NOT round. Do
+   NOT invent. Do NOT paraphrase. If the block says
+   `win_rate: 20.0%` and `expectancy_per_trade: -$508.57`,
+   write "the batch win rate was 20.0% with expectancy
+   -$508.57 per trade". If it says `net_pnl_dollars:
+   -$2,542.87`, do not write "+$391.53".
+
+   WRONG (fabricated — do not do this):
+     "my win rate was 40.0% with expectancy +$78.31
+      and net P&L +$391.53"
+     — but the block says win_rate: 20.0%,
+       expectancy: -$508.57, net_pnl: -$2,542.87.
+
+   RIGHT (verbatim):
+     "the batch win rate was 20.0% with expectancy
+      -$508.57 per trade and net P&L -$2,542.87"
+
+   If the BATCH PERFORMANCE block shows negative expectancy
+   or a negative net P&L, SAY SO. Do NOT flip the sign. Do
+   NOT invent a positive outcome. A rules-compliant system
+   can still lose money — name the loss, do not hide it.
 
    Vary sentence openers. Do NOT write "would have prevented"
    or "would have capped" — state what you do now.

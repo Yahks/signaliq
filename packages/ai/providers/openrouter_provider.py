@@ -19,6 +19,7 @@ from packages.ai.providers.base import (
     ModelProvider,
     ProviderError,
 )
+from packages.core.error import CredentialsExhaustedError
 from packages.core.config import get_settings
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
@@ -55,6 +56,7 @@ class OpenRouterProvider(ModelProvider):
         max_tokens: int | None = None,
         response_format_json: bool = False,
         images: list[bytes] | None = None,  # accepted + ignored
+        reasoning_effort: str | None = None,  # accepted + ignored
     ) -> CompletionResult:
         messages: list[dict[str, str]] = []
         if system:
@@ -115,7 +117,22 @@ class OpenRouterProvider(ModelProvider):
             raise ProviderError(f"OpenRouter connection failed: {exc}") from exc
 
         if r.status_code != 200:
-            # Provide the actual error body
+            # Transient failures (rate limit, service down) should
+            # rotate to the next credential, not abort the run.
+            _body = r.text[:400].lower()
+            _is_transient = (
+                r.status_code == 429
+                or r.status_code == 503
+                or "rate limit" in _body
+                or "resource_exhausted" in _body
+                or "quota exceeded" in _body
+                or "high demand" in _body
+                or "unavailable" in _body
+            )
+            if _is_transient:
+                raise CredentialsExhaustedError(
+                    f"OpenRouter HTTP {r.status_code}: {r.text[:200]}"
+                )
             raise ProviderError(f"OpenRouter HTTP {r.status_code}: {r.text[:400]}")
 
         data = r.json()
