@@ -104,17 +104,30 @@ class OpenRouterProvider(ModelProvider):
         if response_format_json:
             payload["response_format"] = {"type": "json_object"}
 
-        payload["reasoning_effort"] = _os.environ.get(
-            "OPENROUTER_REASONING_EFFORT", "low"
-        )
-
         # Qwen 3.x on OpenRouter uses a separate `reasoning` config
         # block that caps the hidden thinking budget. Without it,
         # qwen burns 10,000+ tokens on reasoning and returns an
         # empty response with finish_reason=length — the
         # reasoning_effort field is not honored by qwen.
         _model_lower = (model or "").lower()
-        if "qwen" in _model_lower or "nex-agi" in _model_lower:
+        _is_qwen_like = "qwen" in _model_lower or "nex-agi" in _model_lower
+
+        # The top-level reasoning_effort is a legacy field OpenRouter
+        # normalizes to reasoning.effort. It must NOT be sent when
+        # the nested `reasoning` block is used, or OpenRouter rejects
+        # the pair:
+        #   400 Only one of "reasoning.effort" and
+        #       "reasoning.max_tokens" can be specified
+        # Removing the nested effort alone was insufficient; the
+        # top-level field was still being normalized into the same
+        # conflict. Send it only for models that do NOT get the
+        # nested block.
+        if not _is_qwen_like:
+            payload["reasoning_effort"] = _os.environ.get(
+                "OPENROUTER_REASONING_EFFORT", "low"
+            )
+
+        if _is_qwen_like:
             # OpenRouter rejects a reasoning block that specifies
             # BOTH effort and max_tokens:
             #   400 Only one of "reasoning.effort" and
