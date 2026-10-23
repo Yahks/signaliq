@@ -951,6 +951,36 @@ def _check_atr_attribution(
     return reasons
 
 
+def _check_lifetime_performance_claim(body: str) -> list[str]:
+    """The article must not contain a lifetime/trailing performance
+    paragraph. The prompt does not ask for one; the model invents
+    one anyway, with fabricated totals. AAPL (42c75327) claimed
+    "841 total trades, 373 winners, 468 losers, average winner
+    $2,320, average loser -$1,763" — the DB (90-day, anchored)
+    says 663 / 276 / 387 / $2,527 / -$1,901. Every figure was
+    invented. The dollar check caught two of the six; the counts
+    slipped through. This rejects the paragraph outright.
+
+    The article is about one trade and its batch. Lifetime totals
+    are a non-sequitur and a fabrication surface.
+    """
+    patterns = (
+        r"broader performance record",
+        r"\btotal trades\b",
+        r"\baverage winner\b",
+        r"\baverage loser\b",
+    )
+    for pat in patterns:
+        if re.search(pat, body or "", re.IGNORECASE):
+            return [
+                "body contains a lifetime/trailing performance "
+                "paragraph (total trades / average winner / average "
+                "loser). The article is about one trade and its "
+                "batch; do not include lifetime totals."
+            ]
+    return []
+
+
 # ── Main entry point ─────────────────────────────────────────────
 
 
@@ -1108,6 +1138,7 @@ def validate(
     reasons.extend(_check_trade_table(body, trades))
     reasons.extend(_check_diagnostics_beat(body))
     reasons.extend(_check_reframe_shape(body, trades, analysis, violations_text))
+    reasons.extend(_check_lifetime_performance_claim(body))
     reasons.extend(_check_fabricated_atr_diagnostic(body, trades))
     reasons.extend(_check_register_notation(body))
     reasons.extend(_check_checklist_form(body))

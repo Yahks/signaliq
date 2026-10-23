@@ -230,6 +230,12 @@ THE EIGHT BEATS, in order:
    Vary sentence openers. Do NOT write "would have prevented"
    or "would have capped" — state what you do now.
 
+   Do NOT write a paragraph about your lifetime or trailing
+   performance record. No "total trades", no "average winner",
+   no "average loser", no "broader performance record". The
+   article is about this trade and its batch, and the batch
+   block is the only performance source.
+
 6. REFRAME. One sentence. Standalone. Impersonal. Matches the
    frame:
      - RISK: "Stop distance isn't the risk. Risk is stop
