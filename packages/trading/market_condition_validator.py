@@ -495,6 +495,93 @@ def _check_rule_conflict_resolved(body: str, skeleton: str) -> list[str]:
     return []
 
 
+def _check_window_dates_stated(body: str, skeleton: str) -> list[str]:
+    """If the skeleton carries window_start/window_end, both must
+    appear in the body."""
+    m = re.search(
+        r"window_start:\s*(\d{4}-\d{2}-\d{2}).*?"
+        r"window_end:\s*(\d{4}-\d{2}-\d{2})",
+        skeleton, re.DOTALL,
+    )
+    if not m:
+        return []
+    reasons: list[str] = []
+    for label, d in (("window_start", m.group(1)), ("window_end", m.group(2))):
+        # accept the date in ISO form or as "Month D, YYYY"
+        y, mo, da = d.split("-")
+        _months = ("January","February","March","April","May","June",
+                   "July","August","September","October","November","December")
+        spelled = f"{_months[int(mo)-1]} {int(da)}, {y}"
+        if d not in body and spelled not in body:
+            reasons.append(
+                f"the skeleton states {label} {d} but the article does "
+                f"not name it"
+            )
+    return reasons
+
+
+def _check_per_symbol_reported(body: str, skeleton: str) -> list[str]:
+    """If the skeleton carries per_symbol_pnl, the article must name
+    at least one symbol from it, so the concentration of the loss is
+    visible."""
+    if "per_symbol_pnl" not in skeleton:
+        return []
+    syms = re.findall(r"^\s{4}([A-Z][A-Z0-9.-]*):\s+\d+ trades",
+                      skeleton, re.MULTILINE)
+    if not syms:
+        return []
+    if any(s in body for s in syms):
+        return []
+    return [
+        "the skeleton carries a per-symbol P&L breakdown but the "
+        "article names none of its symbols — report which names lost"
+    ]
+
+
+def _check_significance_stated(body: str, skeleton: str) -> list[str]:
+    """If the skeleton carries a win_rate_95ci_pp, the article must
+    say something about significance (CI, n, or conclusive)."""
+    if "win_rate_95ci_pp" not in skeleton:
+        return []
+    b = body or ""
+    if re.search(r"(\b95\s*%?\s*(CI|confidence)|\bconfidence interval|"
+                 r"\bstatistically (conclusive|significant)|"
+                 r"\bwithin (the )?(noise|sampling)|\bn\s*=\s*\d+)",
+                 b, re.IGNORECASE):
+        return []
+    return [
+        "the skeleton gives a 95% CI on the win rate but the article "
+        "makes no significance statement"
+    ]
+
+
+def _check_budget_fork_committed(body: str, skeleton: str) -> list[str]:
+    """If the skeleton's WARNING asks the article to pick a branch,
+    'either ... or' is a rejection."""
+    if "budget was not enforced" not in skeleton and \
+       "pre-rule trades" not in skeleton:
+        return []
+    b = body or ""
+    if re.search(r"either[^.]{0,80}(budget|pre-rule)", b, re.IGNORECASE):
+        return [
+            "the article writes 'either/or' on the budget fork — pick "
+            "one branch and commit to it"
+        ]
+    # And require a branch: the WARNING asks the article to reconcile
+    # the drawdown, so one of the two explanations must appear.
+    _committed = (
+        re.search(r"budget (was )?not (been )?enforced", b, re.IGNORECASE)
+        or re.search(r"pre-rule|pre\s*rule|before the rule", b, re.IGNORECASE)
+    )
+    if not _committed:
+        return [
+            "the skeleton's WARNING requires reconciling the drawdown "
+            "against the risk budget; the article names neither branch "
+            "('budget was not enforced' or 'pre-rule trades')"
+        ]
+    return []
+
+
 def validate_market_condition(
     body: str,
     skeleton: str,
@@ -512,6 +599,10 @@ def validate_market_condition(
     reasons.extend(_check_linkage_numbers(body, skeleton))
     reasons.extend(_check_derived_analysis_stated(body, skeleton))
     reasons.extend(_check_rule_conflict_resolved(body, skeleton))
+    reasons.extend(_check_window_dates_stated(body, skeleton))
+    reasons.extend(_check_per_symbol_reported(body, skeleton))
+    reasons.extend(_check_significance_stated(body, skeleton))
+    reasons.extend(_check_budget_fork_committed(body, skeleton))
     reasons.extend(_check_no_checklist(body))
     reasons.extend(_check_no_cta(body))
     return reasons
