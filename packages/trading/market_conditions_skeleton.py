@@ -72,6 +72,13 @@ def _fmt_num(v: Any) -> str:
     return f"{f:g}"
 
 
+def _regime_label(mc: dict[str, Any]) -> str:
+    """Compact label of the active regimes for a snapshot, e.g.
+    "Compressed-Volatility+High-Correlation". Empty when none active."""
+    active = [s["name"] for s in _regime_states(mc) if s["state"] == "ACTIVE"]
+    return "+".join(sorted(active))
+
+
 def _regime_states(mc: dict[str, Any]) -> list[dict[str, Any]]:
     """Evaluate each regime against the snapshot's numeric readings.
 
@@ -284,6 +291,98 @@ async def _trade_linkage(
         "net": net,
         "top_symbols": top,
         "per_symbol": per_sym_top,
+    }
+
+
+async def _conditional_expectancy(
+    session: AsyncSession, org_id: str, as_of: datetime,
+) -> dict[str, Any]:
+    """Split the article-linked trades in the window by the regime
+    label of the most recent snapshot at or before each trade.
+
+    A trade is "in-regime" if the snapshot covering it shares the
+    current snapshot's active-regime label; "out-regime" otherwise.
+    Trades before the earliest snapshot cannot be labeled and are
+    reported as unlabeled — the block must not imply the split
+    covers the whole sample.
+    """
+    start = as_of - timedelta(days=TRADE_LINKAGE_DAYS)
+
+    snaps = (await session.execute(sql_text("""
+        SELECT id, realized_vol_current, spread_current, range_current,
+               correlation_current, breadth_current, created_at
+        FROM market_conditions
+        WHERE org_id = :oid AND deleted_at IS NULL
+        ORDER BY created_at
+    """), {"oid": org_id})).mappings().all()
+    if not snaps:
+        return {"available": False}
+    # label each snapshot
+    labeled_snaps = [
+        (dict(s)["created_at"], _regime_label(dict(s)), dict(s))
+        for s in snaps
+    ]
+    earliest = labeled_snaps[0][0]
+    current_label = _regime_label(dict(snaps[-1]))
+
+    trades = (await session.execute(sql_text("""
+        SELECT traded_at, result
+        FROM trade_log
+        WHERE org_id = :oid AND deleted_at IS NULL
+          AND used_in_article_id IS NOT NULL
+          AND traded_at >= :start AND traded_at <= :as_of
+        ORDER BY traded_at
+    """), {"oid": org_id, "start": start, "as_of": as_of})).mappings().all()
+
+    in_n = in_w = 0
+    in_net = 0.0
+    out_n = out_w = 0
+    out_net = 0.0
+    unlabeled = 0
+
+    for t in trades:
+        td = t["traded_at"]
+        r = float(t["result"] or 0)
+        if td < earliest:
+            unlabeled += 1
+            continue
+        # most recent snapshot at or before the trade
+        lbl = None
+        for s_created, s_label, _ in labeled_snaps:
+            if s_created <= td:
+                lbl = s_label
+            else:
+                break
+        if lbl is None:
+            unlabeled += 1
+            continue
+        if lbl == current_label:
+            in_n += 1
+            in_net += r
+            if r > 0:
+                in_w += 1
+        else:
+            out_n += 1
+            out_net += r
+            if r > 0:
+                out_w += 1
+
+    return {
+        "available": True,
+        "current_label": current_label,
+        "labeled": in_n + out_n,
+        "unlabeled": unlabeled,
+        "in_regime": {
+            "label": current_label, "n": in_n,
+            "win_rate": (in_w / in_n * 100.0) if in_n else 0.0,
+            "expectancy": (in_net / in_n) if in_n else 0.0,
+        },
+        "out_regime": {
+            "n": out_n,
+            "win_rate": (out_w / out_n * 100.0) if out_n else 0.0,
+            "expectancy": (out_net / out_n) if out_n else 0.0,
+        },
+        "earliest_snapshot": earliest,
     }
 
 
@@ -512,6 +611,54 @@ async def build_conditions_skeleton(
                      "notes; do not imply they are the same strategy.")
     lines.append("")
 
+    # ── CONDITIONAL EXPECTANCY ──
+    ce = await _conditional_expectancy(session, org_id, as_of)
+    if ce.get("available"):
+        lines.append("CONDITIONAL_EXPECTANCY (does the edge differ in "
+                     "this regime?):")
+        _in_n = ce["in_regime"]["n"]
+        _out_n = ce["out_regime"]["n"]
+        if ce["labeled"] == 0:
+            lines.append(
+                f"  unavailable: none of the trades in the window fall on "
+                f"or after the earliest snapshot "
+                f"({ce['earliest_snapshot'].date().isoformat()}); state "
+                f"that conditional expectancy cannot be computed from "
+                f"this sample."
+            )
+        elif _in_n < 5 or _out_n < 5:
+            # A degenerate split (e.g. zero in-regime trades) makes the
+            # delta arithmetic on nothing. Do not print it.
+            lines.append(
+                f"  unavailable: the split is degenerate "
+                f"(in-regime n={_in_n}, out-regime n={_out_n}). Too few "
+                f"trades fall under a snapshot with the current regime "
+                f"label to compare in-regime vs out-of-regime expectancy. "
+                f"State that conditional expectancy is not computable "
+                f"from this sample; do NOT quote a delta."
+            )
+        else:
+            ir = ce["in_regime"]
+            ou = ce["out_regime"]
+            lines.append(f"  current_regime_label: {ce['current_label']}")
+            lines.append(f"  labeled_trades: {ce['labeled']} "
+                         f"(unlabeled before earliest snapshot: "
+                         f"{ce['unlabeled']})")
+            lines.append(f"  in_regime:  n={ir['n']}, "
+                         f"win_rate={ir['win_rate']:.2f}%, "
+                         f"expectancy=${ir['expectancy']:+.2f}/trade")
+            lines.append(f"  out_regime: n={ou['n']}, "
+                         f"win_rate={ou['win_rate']:.2f}%, "
+                         f"expectancy=${ou['expectancy']:+.2f}/trade")
+            _delta = ir["expectancy"] - ou["expectancy"]
+            lines.append(f"  delta_expectancy_in_minus_out: "
+                         f"${_delta:+.2f}/trade")
+            lines.append("  If one side has n<30, say the split is too "
+                         "small to call an edge difference. Do not claim "
+                         "the regime predicts returns unless the delta is "
+                         "large relative to both expectancies.")
+        lines.append("")
+
     # ── UNIT DEFINITION ──
     lines.append("UNIT_DEFINITION (state this when you write 'unit'):")
     lines.append("  1 unit = the full position at the 1.5% risk budget "
@@ -528,9 +675,10 @@ async def build_conditions_skeleton(
     lines.append("  - Persistence: this is a SINGLE snapshot. There is "
                  "no history in the block, so do not write "
                  "correlation-been-above-0.50-for-N-days.")
-    lines.append("  - Base rate / conditional expectancy: not computed. "
-                 "Do not claim the regime predicts returns; the "
-                 "trade-linkage count is the only performance evidence.")
+    lines.append("  - Conditional expectancy is computed only for "
+                 "trades on or after the earliest snapshot; state the "
+                 "labeled count and do not imply the split covers the "
+                 "whole sample.")
     lines.append("  - VIX and positioning readings are absent. If you "
                  "mention those regimes, say the reading is unavailable.")
     lines.append("  - The trade record is synthetic-generated and "
