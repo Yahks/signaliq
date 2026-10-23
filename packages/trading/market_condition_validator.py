@@ -113,11 +113,24 @@ def _check_metrics_sourced(body: str, skeleton: str) -> list[str]:
     # text, and the article may cite them. Matching only READINGS
     # flagged correct rule thresholds as fabricated (0.60%, 1.2%,
     # 70%, 0.75%, 1%).
-    allowed_values = set(re.findall(r"-?\d+(?:\.\d+)?", skeleton))
+    # Numeric, not string: the body says "0.80%" and the skeleton
+    # prints "0.8" (trailing zero stripped) — same number, different
+    # strings. Compare parsed floats with a tight tolerance so
+    # 0.80 matches 0.8 but a genuinely unsourced 0.93 still fails.
+    allowed_floats = []
+    for tok in re.findall(r"-?\d+(?:\.\d+)?", skeleton):
+        try:
+            allowed_floats.append(float(tok))
+        except ValueError:
+            pass
     # Percent-per-day and bp readings.
     for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|bp|percent)", body or ""):
         v = m.group(1)
-        if v in allowed_values:
+        try:
+            _vf = float(v)
+        except ValueError:
+            continue
+        if any(abs(_vf - a) < 1e-9 for a in allowed_floats):
             continue
         # A bare integer like "0.5 unit" or "2%" from a rule is fine;
         # only flag readings above 0.0 that don't appear in the
@@ -341,13 +354,32 @@ def _check_linkage_numbers(body: str, skeleton: str) -> list[str]:
                     f"trade-linkage mismatch: article {v} losses, "
                     f"skeleton {lk['losses']}"
                 )
-    for m in re.finditer(r"net\s+(?:loss|gain|P&L|pnl)?[^.$]{0,40}\$(-?[\d,]+(?:\.\d+)?)",
-                         b, re.IGNORECASE):
-        v = m.group(1).replace(",", "").rstrip(".")
-        if v != lk["net"].replace(",", "").rstrip("."):
+    try:
+        _sk_net = float(lk["net"].replace(",", ""))
+    except ValueError:
+        _sk_net = None
+    for m in re.finditer(
+        r"net\s+(loss|gain|P&L|pnl)?[^.$]{0,40}\$(-?[\d,]+(?:\.\d+)?)",
+        b, re.IGNORECASE,
+    ):
+        qualifier = (m.group(1) or "").lower()
+        raw = m.group(2).replace(",", "").rstrip(".")
+        try:
+            art_net = float(raw)
+        except ValueError:
+            continue
+        # The qualifier carries the sign: "a net loss of $89,439.54"
+        # means -89439.54. Without this, a correct sentence was
+        # rejected (548b8742: "net loss of $89,439.54" vs skeleton
+        # net -89439.54).
+        if qualifier == "loss":
+            art_net = -abs(art_net)
+        elif qualifier == "gain":
+            art_net = abs(art_net)
+        if _sk_net is not None and abs(art_net - _sk_net) > 0.01:
             reasons.append(
-                f"trade-linkage mismatch: article net ${v}, "
-                f"skeleton net ${lk['net']}"
+                f"trade-linkage mismatch: article net {art_net:+.2f}, "
+                f"skeleton net {_sk_net:+.2f}"
             )
 
     # ── Per-symbol counts: each must be in the skeleton's list. ──

@@ -51,6 +51,8 @@ BASELINE_CANDIDATE_COUNT = 2.5       # from "2-3 viable setups"
 BASELINE_ADR_PCT = 1.5               # from "ADR ≈ 1.5% (24h)"
 BASELINE_CORRELATION = 0.30          # from "pairwise strategy correlation ≈ 0.30"
 BASELINE_SPREAD_BP = 0.9             # from "median 5-min spread ≈ 0.9 bp"
+BASELINE_REALIZED_VOL = 0.80         # from "10-day realized vol ≈ 0.80 %/day"
+BASELINE_RANGE_PCT = 1.5             # ADR baseline, same as above
 
 # Persistence is not measurable from one snapshot. The window is
 # what the trade-linkage query uses; it is NOT a regime-persistence
@@ -318,6 +320,20 @@ async def build_conditions_skeleton(
         lines.append(f"  metric_source: {src}")
     lines.append("  NOT TRACKED in this snapshot: volatility-index (VIX) "
                  "reading; positioning survey net-long %; slippage.")
+    lines.append("")
+    # ── BASELINES ──
+    # The trader's stored baselines are what make a reading
+    # interpretable ("0.42 vs 0.80 normal"). The article may cite
+    # these; without them the metric check rejected a correct
+    # baseline comparison (b34ff13d: "0.42 against my baseline of
+    # 0.80").
+    lines.append("BASELINES (the trader's normal-day values; cite these "
+                 "when comparing a reading):")
+    lines.append(f"  realized_vol_baseline: {_fmt_num(BASELINE_REALIZED_VOL)} %/day")
+    lines.append(f"  range_baseline: {_fmt_num(BASELINE_RANGE_PCT)} %")
+    lines.append(f"  spread_baseline: {_fmt_num(BASELINE_SPREAD_BP)} bp")
+    lines.append(f"  correlation_baseline: {_fmt_num(BASELINE_CORRELATION)}")
+    lines.append(f"  candidate_count_baseline: {_fmt_num(BASELINE_CANDIDATE_COUNT)}")
     lines.append("")
 
     # ── REGIMES ──

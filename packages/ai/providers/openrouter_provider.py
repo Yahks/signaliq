@@ -115,10 +115,13 @@ class OpenRouterProvider(ModelProvider):
         # reasoning_effort field is not honored by qwen.
         _model_lower = (model or "").lower()
         if "qwen" in _model_lower or "nex-agi" in _model_lower:
+            # OpenRouter rejects a reasoning block that specifies
+            # BOTH effort and max_tokens:
+            #   400 Only one of "reasoning.effort" and
+            #       "reasoning.max_tokens" can be specified
+            # qwen ignores effort and honors max_tokens (the
+            # comment above), so keep max_tokens and drop effort.
             payload["reasoning"] = {
-                "effort": _os.environ.get(
-                    "OPENROUTER_REASONING_EFFORT", "low"
-                ),
                 "max_tokens": int(
                     _os.environ.get(
                         "OPENROUTER_REASONING_MAX_TOKENS", "1024"

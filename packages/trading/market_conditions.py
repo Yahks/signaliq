@@ -53,7 +53,8 @@ async def get_market_conditions(
 
     # Fetch all snapshots. Pick one by article_count % N.
     rows = (await session.execute(sql_text("""
-        SELECT what_i_track, baselines, regimes,
+        SELECT id, created_at,
+               what_i_track, baselines, regimes,
                thresholds, adjustments, mechanisms,
                realized_vol_current, spread_current, range_current,
                correlation_current, breadth_current
@@ -76,6 +77,12 @@ async def get_market_conditions(
     out["range_current"] = row["range_current"]
     out["correlation_current"] = row["correlation_current"]
     out["breadth_current"] = row["breadth_current"]
+    # The skeleton anchors its as-of date and 20-day trade-linkage
+    # window on the snapshot's created_at. Without these, the
+    # builder fell back to datetime.now() and the window ended
+    # on generation date instead of snapshot date.
+    out["id"] = str(row["id"]) if row["id"] is not None else ""
+    out["created_at"] = row["created_at"]
     return out
 
 
