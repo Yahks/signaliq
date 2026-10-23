@@ -121,7 +121,7 @@ THE NINE BEATS, in order:
 4. DIAGNOSTICS. Copy the VERBATIM DIAGNOSTICS BLOCK from the
    skeleton exactly. Every row, every number, every date. Do
    NOT invent a trade. Do NOT change a number. Do NOT reformat
-   a date. Wrap in <!-- DIAGNOSTICS --> markers.
+   a date.
 
 5. FIXES. Four to five changes, continuous prose, in one
    paragraph or two. Each references THE ARTICLE'S TRADE.
@@ -204,20 +204,16 @@ THE NINE BEATS, in order:
    it's Z" formula unless it genuinely fits. Wrap in
    <!-- REFRAME --> markers.
 
-7. CHECKLIST. Five questions, woven into one or two short
-   paragraphs. Each sentence ends with "?". Frame-relevant,
-   not generic. Wrap in <!-- CHECKLIST --> markers.
-
-8. VERIFICATION TABLE. The Python-built table appears in the
-   article after the checklist. Do not write your own table —
+7. VERIFICATION TABLE. The Python-built table appears in the
+   article after the reframe. Do not write your own table —
    it will be stripped and replaced. The table will have the
    format:
      | Date | Direction | Contracts | Entry | Stop | Exit | Result |
    The subject trade is row 1. Five related trades follow in
    chronological order.
 
-9. END. End the article with the checklist. Nothing after
-   the checklist. No CTA, no marketing line, no URL.
+8. END. End the article with the verification table. Nothing
+   after the table. No CTA, no marketing line, no URL.
 
 LENGTH: 500-800 words.
 """
