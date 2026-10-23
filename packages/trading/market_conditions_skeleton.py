@@ -382,9 +382,24 @@ async def build_conditions_skeleton(
                 f"not present both as active."
             )
     if _conflicts:
-        lines.append("RULE_CONFLICT (resolve before writing):")
-        for c in _conflicts:
-            lines.append(f"  - {c}")
+        # Do not merely flag the conflict and leave the model to
+        # resolve it — the model "resolved" it by writing "I tighten
+        # stops to 0.5% while suspending the 0.75% rule, because the
+        # conflict resolves in favor of the tighter stop", which
+        # still contains both and resolves nothing. State the
+        # resolution as a fact the article quotes.
+        lines.append("RESOLVED_RULE (state this; do NOT restate the raw "
+                     "conflict):")
+        for s in active:
+            rule = ADJUSTMENTS_BY_REGIME.get(s["name"], "").lower()
+            if "tighten" in rule and "stop" in rule and "suspend" in rule and "stop" in rule:
+                lines.append(
+                    f"  [{s['name']}] the tightened 0.5% stop REPLACES the "
+                    f"0.75% stop-loss rule. The 0.75% rule is NOT suspended — "
+                    f"it is superseded by the tighter stop. Do not write "
+                    f"'suspend' for this regime; do not present the two as "
+                    f"active together."
+                )
         lines.append("")
 
     # ── INACTIVE ──

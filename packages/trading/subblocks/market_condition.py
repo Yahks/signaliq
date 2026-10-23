@@ -40,9 +40,12 @@ MUST come from this block. Do not invent a metric.
 
 {skeleton}
 
-If the skeleton has a RULE_CONFLICT block, state which stop policy
-governs — the tightened stop or the suspension — and do not present
-both as active in the same article.
+If the skeleton has a RESOLVED_RULE block, quote the resolution
+verbatim: the tightened stop replaces the suspended rule. Do NOT
+write "suspend" for that regime — the rule is superseded, not
+suspended. Do NOT present the tightened stop and the suspension as
+both active. Do NOT add a clause claiming to resolve the conflict;
+state the resolved rule as a fact.
 
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a
@@ -109,9 +112,12 @@ STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from
 
 {skeleton}
 
-If the skeleton has a RULE_CONFLICT block, state which stop policy
-governs — the tightened stop or the suspension — and do not present
-both as active in the same article.
+If the skeleton has a RESOLVED_RULE block, quote the resolution
+verbatim: the tightened stop replaces the suspended rule. Do NOT
+write "suspend" for that regime — the rule is superseded, not
+suspended. Do NOT present the tightened stop and the suspension as
+both active. Do NOT add a clause claiming to resolve the conflict;
+state the resolved rule as a fact.
 
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a
@@ -153,9 +159,12 @@ STRUCTURED SKELETON — computed by Python. Every number you cite MUST come from
 
 {skeleton}
 
-If the skeleton has a RULE_CONFLICT block, state which stop policy
-governs — the tightened stop or the suspension — and do not present
-both as active in the same article.
+If the skeleton has a RESOLVED_RULE block, quote the resolution
+verbatim: the tightened stop replaces the suspended rule. Do NOT
+write "suspend" for that regime — the rule is superseded, not
+suspended. Do NOT present the tightened stop and the suspension as
+both active. Do NOT add a clause claiming to resolve the conflict;
+state the resolved rule as a fact.
 
 If the skeleton has a DERIVED ANALYSIS block, state the win rate,
 the expectancy per trade, and the equity impact. If it carries a

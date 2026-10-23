@@ -473,17 +473,25 @@ def _check_rule_conflict_resolved(body: str, skeleton: str) -> list[str]:
     if "RULE_CONFLICT" not in skeleton:
         return []
     b = (body or "").lower()
-    # `.` matches any char except newline, including the decimal
-    # point in "0.75%" — excluding periods broke the match on the
-    # exact sentence the check exists to catch.
-    tightens = bool(re.search(r"tighten\b.{0,40}?\bstop", b))
-    suspends = bool(re.search(r"suspend\b.{0,40}?\bstop", b))
-    if tightens and suspends:
-        return [
-            "RULE_CONFLICT present: the article presents both a "
-            "tightened stop and a suspended stop as active — state "
-            "which policy governs"
-        ]
+    # A conflict is a rejection only if the two appear in the SAME
+    # SENTENCE. Across sentences ("I tighten the stop. Elsewhere the
+    # rule is suspended.") is a coherent statement of two regimes;
+    # within one sentence ("I tighten stops while suspending the
+    # rule, which resolves in favor of tightening") is the
+    # contradiction the reviewer flagged — it names a resolution but
+    # still contains both policies.
+    for sentence in re.split(r"(?<=[.!?])\s+", b):
+        # Allow inflections: the article writes "while
+        # suspending the 0.75% stop-loss rule", and suspend\b does
+        # not match "suspending" (word boundary fails mid-word).
+        if (re.search(r"tighten(?:s|ing|ed)?\b.{0,60}?\bstop", sentence)
+                and re.search(r"suspend(?:s|ing|ed)?\b.{0,60}?\bstop", sentence)):
+            return [
+                "the article puts a tightened stop and a suspended stop "
+                "in the same sentence — the resolution supersedes the "
+                "rule, it does not suspend it. Rewrite: 'the 0.5% stop "
+                "replaces the 0.75% rule.'"
+            ]
     return []
 
 
