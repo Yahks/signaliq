@@ -380,6 +380,31 @@ def _check_no_checklist(body: str) -> list[str]:
     return []
 
 
+async def load_frozen_skeleton(session, post_id: str) -> str:
+    """Return the skeleton a post was generated against.
+
+    The skeleton is stored in source_payload at generation time so
+    re-validation compares against what the model actually saw,
+    not a freshly rebuilt skeleton (whose trade-linkage figures
+    drift as new articles link trades into the same window).
+    """
+    from sqlalchemy import text as _t
+    row = (await session.execute(
+        _t("SELECT source_payload FROM trading_posts WHERE id = :p"),
+        {"p": post_id},
+    )).first()
+    if not row or not row[0]:
+        return ""
+    payload = row[0]
+    if isinstance(payload, str):
+        import json as _json
+        try:
+            payload = _json.loads(payload)
+        except Exception:
+            return ""
+    return (payload or {}).get("skeleton", "") or ""
+
+
 def validate_market_condition(
     body: str,
     skeleton: str,

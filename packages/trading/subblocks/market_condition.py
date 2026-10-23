@@ -289,6 +289,7 @@ async def generate(
             "form": form_choice,
             "register": register,
             "tier": tier,
+            "skeleton": skeleton,
         },
         source_urls=[],
         symbols=[],
