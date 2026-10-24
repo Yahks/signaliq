@@ -39,6 +39,24 @@ def _present(body: str, v: float, *, signed: bool = False) -> bool:
     return False
 
 
+_UNICODE_MAP = {
+    0x2010: "-", 0x2011: "-", 0x2012: "-", 0x2013: "-",
+    0x2014: "-", 0x2015: "-",
+    0x202F: " ", 0x00A0: " ",
+}
+
+
+def _ascii(text: str) -> str:
+    """Normalise Unicode punctuation before any match.
+
+    The model writes dates with U+2011 ("2026‑01‑02") and
+    the sample-period check compares against ASCII. Without this the
+    check rejects a correct sentence. Same fix as
+    market_condition_validator._ascii.
+    """
+    return (text or "").translate(_UNICODE_MAP)
+
+
 _RETIRED_REFRAMES = (
     "the rule doesn't end the impulse",
     "the rule doesn't stop the impulse",
@@ -105,6 +123,7 @@ def validate_psychology(
     reasons: list[str] = []
     if not body:
         return ["empty body"]
+    body = _ascii(body)
 
     # ── 1. the reconciliation ──
     r = readings or {}
