@@ -175,6 +175,26 @@ FIVE are marked REFERENCE.
   rows. Do not describe a violation as "costly" if its net is
   positive — say the gap instead.
 
+  ALSO STATE:
+    (f) how many violations were PROFITABLE and their net — a
+        violation that wins is the most dangerous kind, because it
+        reinforces the behaviour. Say it explicitly.
+    (g) the sample period (sample_period in the block).
+
+  MECHANISM -> FIX MAPPING. Each fix must name the mechanism it
+  addresses, not just the rule it enforces:
+    - holding losers (disposition, Odean 1998) -> locked stop
+    - size creep after wins (house money) -> sizing cap
+    - frequency after losses (Barber & Odean 2000) -> cooldown
+    - skipped review -> rule-tagged journal
+  Do not list four fixes without saying which impulse each one
+  targets.
+
+  CAUSAL LANGUAGE. Say the gap "is consistent with" rule adherence,
+  not that it "demonstrates" or "proves" it. Instrument mix, size,
+  and regime can confound the comparison. Do not claim causation
+  from an unpaired sample.
+
 - Do NOT invent a trade that is not one of the six rows above.
 
 4. DIAGNOSTICS — ONE bulleted list. Exactly FIVE items. Each item
@@ -450,6 +470,8 @@ async def fetch_trader_state(
              if _psy_classify(r.get("reading_key")) == "compliant"]
     _viol = [r for r in all_rows
              if _psy_classify(r.get("reading_key")) == "violation"]
+    _viol_w = [r for r in _viol if float(r.get("result") or 0) > 0]
+    _viol_l = [r for r in _viol if float(r.get("result") or 0) < 0]
 
     def _net(rows): return sum(float(r["result"] or 0) for r in rows)
     def _avg(rows): return (_net(rows) / len(rows)) if rows else 0.0
@@ -475,6 +497,14 @@ async def fetch_trader_state(
             round(len(_viol) / (len(_comp) + len(_viol)) * 100.0, 1)
             if (_comp or _viol) else None
         ),
+        "violation_wins_n": len(_viol_w),
+        "violation_wins_net": round(_net(_viol_w), 2),
+        "violation_losses_n": len(_viol_l),
+        "violation_losses_net": round(_net(_viol_l), 2),
+        "sample_start": str(all_rows[0].get("traded_at") or "")[:10]
+        if all_rows else None,
+        "sample_end": str(sorted_rows[0].get("traded_at") or "")[:10]
+        if sorted_rows else None,
     }
 
     # ── Behaviour block: one line per row, pipe-separated ──────────
@@ -893,6 +923,11 @@ async def generate(
         f"avg ${_r.get('violation_avg'):+,.2f}/trade\n"
         f"  per_trade_gap: ${_r.get('per_trade_gap'):+,.2f}\n"
         f"  violation_rate: {_r.get('violation_rate_pct')}%\n"
+        f"  violation_wins: n={_r.get('violation_wins_n')}, "
+        f"net ${(_r.get('violation_wins_net') or 0):+,.2f} — "
+        f"profitable violations, state these\n"
+        f"  sample_period: {_r.get('sample_start')} to "
+        f"{_r.get('sample_end')}\n"
         f"  violations_net: "
         f"{'POSITIVE — the finding is the per-trade gap, not a loss' if (_r.get('violation_net') or 0) >= 0 else 'NEGATIVE'}"
         if _r else "  (no reconciliation available)"

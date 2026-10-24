@@ -79,6 +79,14 @@ async def build_psychology_skeleton(
     viol = [i for i in incidents if _classify(i["reading_key"]) == "violation"]
     uncl: list[dict[str, Any]] = []
 
+    # A violation that WINS is the most dangerous kind: it teaches the
+    # hand to click again. The aggregate net hides it, so split both
+    # buckets by sign.
+    def _wins(xs): return [i for i in xs if float(i["result"] or 0) > 0]
+    def _loss(xs): return [i for i in xs if float(i["result"] or 0) < 0]
+    comp_w, comp_l = _wins(comp), _loss(comp)
+    viol_w, viol_l = _wins(viol), _loss(viol)
+
     def _net(xs): return sum(float(i["result"] or 0) for i in xs)
     def _avg(xs): return (_net(xs) / len(xs)) if xs else 0.0
 
@@ -106,8 +114,27 @@ async def build_psychology_skeleton(
             lines.append("  NOTE: violations were NET POSITIVE overall — "
                          "the finding is the per-trade gap, NOT that "
                          "violations lost money. Say the gap, not a loss.")
+        # The profitable violations, stated separately.
+        if viol_w:
+            _vw_net = sum(float(i["result"] or 0) for i in viol_w)
+            lines.append(
+                f"  violation_wins: n={len(viol_w)}, "
+                f"net ${_vw_net:+,.2f} — {len(viol_w)} of "
+                f"{len(viol)} violations were PROFITABLE. State this: a "
+                f"violation that wins is the most dangerous kind."
+            )
+        if viol_l:
+            _vl_net = sum(float(i["result"] or 0) for i in viol_l)
+            lines.append(
+                f"  violation_losses: n={len(viol_l)}, "
+                f"net ${_vl_net:+,.2f}"
+            )
     lines.append("")
 
+    lines.append(f"SAMPLE PERIOD: {incidents[0]['traded_at'].date()} to "
+                 f"{incidents[-1]['traded_at'].date()} "
+                 f"({len(incidents)} incidents). State these dates.")
+    lines.append("")
     lines.append("INCIDENT LIST (cite these; do not invent one):")
     for i in incidents:
         _c = _classify(i["reading_key"])

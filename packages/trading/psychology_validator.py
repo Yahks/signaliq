@@ -78,6 +78,22 @@ def validate_psychology(
                 f"reconciliation: violation rate ({rate}%) does not "
                 f"appear in the article"
             )
+        # profitable violations — the reviewer's #1 point
+        vwn = r.get("violation_wins_n")
+        if vwn:
+            if str(vwn) not in body:
+                reasons.append(
+                    f"reconciliation: count of profitable violations "
+                    f"({vwn}) does not appear — a violation that wins "
+                    f"is the most dangerous kind and must be stated"
+                )
+        # sample period
+        ss, se = r.get("sample_start"), r.get("sample_end")
+        if ss and se:
+            if ss not in body or se not in body:
+                reasons.append(
+                    f"sample period ({ss} to {se}) does not appear"
+                )
 
     # ── 2. the cited trade ──
     lt = latest_trade or {}
