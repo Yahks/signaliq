@@ -383,10 +383,18 @@ def _check_linkage_numbers(body: str, skeleton: str) -> list[str]:
         _sk_net = float(lk["net"].replace(",", ""))
     except ValueError:
         _sk_net = None
+    # Per-symbol tickers, so a per-symbol "net loss of $X" is not
+    # compared to the aggregate net.
+    _tickers = set(re.findall(r"^\s{4}([A-Z][A-Z0-9.-]*):", skeleton,
+                              re.MULTILINE))
     for m in re.finditer(
         r"net\s+(loss|gain|P&L|pnl)?[^.$]{0,40}\$(-?[\d,]+(?:\.\d+)?)",
         b, re.IGNORECASE,
     ):
+        # skip if a ticker appears within 45 chars before the match
+        _pre = b[max(0, m.start() - 45):m.start()]
+        if any(re.search(r"\b" + re.escape(t) + r"\b", _pre) for t in _tickers):
+            continue
         qualifier = (m.group(1) or "").lower()
         raw = m.group(2).replace(",", "").rstrip(".")
         try:
@@ -571,7 +579,8 @@ def _check_significance_stated(body: str, skeleton: str) -> list[str]:
     b = body or ""
     if re.search(r"(\b95\s*%?\s*(CI|confidence)|\bconfidence interval|"
                  r"\bstatistically (conclusive|significant)|"
-                 r"\bwithin (the )?(noise|sampling)|\bn\s*=\s*\d+)",
+                 r"\bwithin (the )?(noise|sampling)|\bn\s*=\s*\d+|"
+                 r"±\s*\d+(?:\.\d+)?\s*pp)",
                  b, re.IGNORECASE):
         return []
     return [
