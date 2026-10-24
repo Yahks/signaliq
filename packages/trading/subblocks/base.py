@@ -110,10 +110,11 @@ def _floor_for(register: str | None) -> int:
     if register == "market-structure":
         return 400
     if register == "market-regime":
-        # Target 700. Floor 450. The model writes 400-600 words
-        # on this register before post-processing; the
-        # post-processor adds the checklist.
-        return 450
+        # Floor 820: the editorial standard for this subblock. An
+        # article under 820 words is rejected and drafts. The prompt
+        # asks for 820 and directs where the words go (mechanism,
+        # diagnostics, fixes, limits) so the model does not pad.
+        return 820
     if register == "market-breadth":
         # Same family. Floor 450.
         return 450

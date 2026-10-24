@@ -52,12 +52,10 @@ trader's phrasing; do not sharpen it. If the block says "after the
 daily settlement window" without a time, do not write "4pm" or any
 specific hour — the trader never stated one.
 
-If the skeleton has a DERIVED ANALYSIS block, state the win rate,
-the expectancy per trade, and the equity impact. If it carries a
-WARNING, reconcile the drawdown against the 1.5% per-trade budget in
-plain words: either the budget was not enforced or the sample
-includes pre-rule trades. Say which. Do not report the raw trade
-counts and stop there.
+If the skeleton has a DERIVED ANALYSIS block, it is quoted in the
+diagnostics beat (beat 4) as one of the observations — not as a
+separate closing paragraph. The WARNING's budget branch is part of
+that observation; commit to one branch.
 
 Write the F1 Regime Report now.
 
@@ -66,7 +64,13 @@ Write the F1 Regime Report now.
     a regime active that the skeleton marks INACTIVE or UNKNOWN.
   - Apply ONLY the rules listed under ACTIVE_RULES. A rule tied
     to an INACTIVE or UNKNOWN regime is not in force — do not
-    apply it.
+    apply it, and do not cite its numbers even as historical
+    context.
+  - Each regime's rules are its own. Stop-loss percentages, unit
+    caps, scan-skip conditions, and order-splitting instructions
+    belong to the regime whose rule text states them and to no
+    other. Do not carry a rule from a regime that was active in a
+    previous article into this one.
   - State the LIMITS plainly: single snapshot, no persistence, no
     base rate, no conditional expectancy. Do not claim the regime
     has persisted for N days.
@@ -80,14 +84,31 @@ BEAT SHAPE — seven beats, in order:
   2. Problem — one sentence. What the reading did to your read.
   3. Mechanism — impersonal. How the named regimes behave.
   4. Diagnostics — first person. 4-6 observations drawn from
-     READINGS and REGIMES.
+     READINGS, REGIMES, and the TRADE LINKAGE / DERIVED ANALYSIS
+     block. One observation MUST be the trade record, stated in
+     full: the window dates (window_start to window_end), the win
+     rate, the expectancy per trade, the equity impact, at least
+     one per-symbol name from per_symbol_pnl, and which budget
+     branch applies — "the budget was not enforced in this sample"
+     OR "the sample includes pre-rule trades". This is a required
+     observation, not a closing remark. State the win-rate CI
+     (±Xpp) or say the edge is statistically conclusive.
   5. Fixes — 4-5 before/after changes drawn ONLY from
      ACTIVE_RULES.
   6. Reframe — ONE SENTENCE, STANDALONE. Impersonal.
   7. End — end on the reframe. No checklist, no CTA, no URL.
 
-WORD BUDGET — aim for 700 words. If your draft is under 600,
-extend the mechanism and the diagnostics.
+WORD BUDGET — 820 words MINIMUM. Hard floor: an article under 820
+words is rejected. Reach it by developing these beats, not by
+padding:
+  - Mechanism: 150-200 words on how the named regimes interact.
+  - Diagnostics: 4-6 observations, 70-100 words each; the trade-
+    record observation is 100-140 words on its own.
+  - Fixes: 4-5 adjustments, 70-100 words each, each naming the
+    rule that governs it.
+  - LIMITS: 40-60 words on what the snapshot cannot tell you.
+Do not repeat a point to add length. If you are short, add depth
+to the mechanism and the diagnostics, not summary sentences.
 
 FIXES ARE BEFORE/AFTER. Every fix in the fixes beat begins with
 'I used to' or 'I now.' Never a bare imperative.
@@ -129,14 +150,33 @@ trader's phrasing; do not sharpen it. If the block says "after the
 daily settlement window" without a time, do not write "4pm" or any
 specific hour — the trader never stated one.
 
-If the skeleton has a DERIVED ANALYSIS block, state the win rate,
-the expectancy per trade, and the equity impact. If it carries a
-WARNING, reconcile the drawdown against the 1.5% per-trade budget in
-plain words: either the budget was not enforced or the sample
-includes pre-rule trades. Say which. Do not report the raw trade
-counts and stop there.
+If the skeleton has a DERIVED ANALYSIS block, it is quoted in the
+diagnostics beat (beat 4) as one of the observations — not as a
+separate closing paragraph. The WARNING's budget branch is part of
+that observation; commit to one branch.
 
 Write the F2 Process Diary now.
+
+  - Name the regime states the skeleton reports: which regimes
+    are ACTIVE, which are INACTIVE, which are UNKNOWN. Do not call
+    a regime active that the skeleton marks INACTIVE or UNKNOWN.
+  - Apply ONLY the rules listed under ACTIVE_RULES. A rule tied
+    to an INACTIVE or UNKNOWN regime is not in force — do not
+    apply it, and do not cite its numbers even as historical
+    context.
+  - Each regime's rules are its own. Stop-loss percentages, unit
+    caps, scan-skip conditions, and order-splitting instructions
+    belong to the regime whose rule text states them and to no
+    other. Do not carry a rule from a regime that was active in a
+    previous article into this one.
+  - State the LIMITS plainly: single snapshot, no persistence, no
+    base rate, no conditional expectancy. Do not claim the regime
+    has persisted for N days.
+  - The trade record is one of the diagnostics: state the window
+    dates, the win rate with its CI, the expectancy per trade, the
+    equity impact, at least one per-symbol name from
+    per_symbol_pnl, and ONE budget branch committed. This is
+    required, not optional.
 
   - My scan returned [result] this week.
   - The current breadth state (wide, narrow, or transitional).
@@ -148,8 +188,17 @@ Write the F2 Process Diary now.
 FIRST PERSON throughout. The hook has tension. The fixes are
 before/after: 'I used to X. Now I Y.'
 
-WORD BUDGET — 600+ words. Extend the mechanism and the
-diagnostics if under.
+WORD BUDGET — 820 words MINIMUM. Hard floor: an article under 820
+words is rejected. Reach it by developing these beats, not by
+padding:
+  - Mechanism: 150-200 words on how the named regimes interact.
+  - Diagnostics: 4-6 observations, 70-100 words each; the trade-
+    record observation is 100-140 words on its own.
+  - Fixes: 4-5 adjustments, 70-100 words each, each naming the
+    rule that governs it.
+  - LIMITS: 40-60 words on what the snapshot cannot tell you.
+Do not repeat a point to add length. If you are short, add depth
+to the mechanism and the diagnostics, not summary sentences.
 
 NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. Continuous prose. No headings, no bullets. Do NOT end with a CTA, a URL, an email address, or a marketing line.
 """
@@ -181,14 +230,33 @@ trader's phrasing; do not sharpen it. If the block says "after the
 daily settlement window" without a time, do not write "4pm" or any
 specific hour — the trader never stated one.
 
-If the skeleton has a DERIVED ANALYSIS block, state the win rate,
-the expectancy per trade, and the equity impact. If it carries a
-WARNING, reconcile the drawdown against the 1.5% per-trade budget in
-plain words: either the budget was not enforced or the sample
-includes pre-rule trades. Say which. Do not report the raw trade
-counts and stop there.
+If the skeleton has a DERIVED ANALYSIS block, it is quoted in the
+diagnostics beat (beat 4) as one of the observations — not as a
+separate closing paragraph. The WARNING's budget branch is part of
+that observation; commit to one branch.
 
 Write the F3 Structural Explainer now.
+
+  - Name the regime states the skeleton reports: which regimes
+    are ACTIVE, which are INACTIVE, which are UNKNOWN. Do not call
+    a regime active that the skeleton marks INACTIVE or UNKNOWN.
+  - Apply ONLY the rules listed under ACTIVE_RULES. A rule tied
+    to an INACTIVE or UNKNOWN regime is not in force — do not
+    apply it, and do not cite its numbers even as historical
+    context.
+  - Each regime's rules are its own. Stop-loss percentages, unit
+    caps, scan-skip conditions, and order-splitting instructions
+    belong to the regime whose rule text states them and to no
+    other. Do not carry a rule from a regime that was active in a
+    previous article into this one.
+  - State the LIMITS plainly: single snapshot, no persistence, no
+    base rate, no conditional expectancy. Do not claim the regime
+    has persisted for N days.
+  - The trade record is one of the diagnostics: state the window
+    dates, the win rate with its CI, the expectancy per trade, the
+    equity impact, at least one per-symbol name from
+    per_symbol_pnl, and ONE budget branch committed. This is
+    required, not optional.
 
   - Here is how breadth behaves.
   - Here is what it does to a systematic strategy.
@@ -202,8 +270,17 @@ fixes are FIRST PERSON. Never 'you,' 'your,' 'you can.'
 FIXES ARE BEFORE/AFTER. Every fix begins with 'I used to' or
 'I now.' Never a bare imperative.
 
-WORD BUDGET — 600+ words. Extend the mechanism and the
-diagnostics if under.
+WORD BUDGET — 820 words MINIMUM. Hard floor: an article under 820
+words is rejected. Reach it by developing these beats, not by
+padding:
+  - Mechanism: 150-200 words on how the named regimes interact.
+  - Diagnostics: 4-6 observations, 70-100 words each; the trade-
+    record observation is 100-140 words on its own.
+  - Fixes: 4-5 adjustments, 70-100 words each, each naming the
+    rule that governs it.
+  - LIMITS: 40-60 words on what the snapshot cannot tell you.
+Do not repeat a point to add length. If you are short, add depth
+to the mechanism and the diagnostics, not summary sentences.
 
 NO LABELS. Do NOT write '**Checklist**' or any bold label. Do NOT write 'Checklist:' or any beat name as a header. Continuous prose. No headings, no bullets. Do NOT end with a CTA, a URL, an email address, or a marketing line.
 """
