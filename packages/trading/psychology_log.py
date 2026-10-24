@@ -194,10 +194,20 @@ Constraints:
 
 - Direction: long or short.
 - Contracts: integer 1-6.
-- Entry/stop/target/exit: plausible for the instrument. Result
-  must equal (exit - entry) * contracts * point_value for the
-  direction, rounded to dollars. Point values: ES $50, CL $1000,
-  GC $100, 6E $1250, ZB $1000, MNQ $2.
+- Entry/stop/target/exit: plausible for the instrument.
+- Stop side: for a LONG the stop is BELOW the entry; for a SHORT
+  the stop is ABOVE the entry. A short with a stop below entry is
+  an invalid row.
+- "stop hit" means the exit price equals the stop exactly. Do not
+  use "stop hit" with any other exit price.
+- result: DERIVED FROM THE PRICES, never chosen. Compute it as
+    long:  (exit - entry) * contracts * point_value
+    short: (entry - exit) * contracts * point_value
+  rounded to dollars. Point values: ES $50, CL $1000, GC $100,
+  ZB $1000, 6E $125000, MNQ $2.
+  Example: a 1-contract CL short from 80.00 stopped at 80.50 loses
+  (80.00 - 80.50) * 1 * 1000 = -$500. A 2-contract ES long from
+  5840.00 to 5852.00 gains (5852 - 5840) * 2 * 50 = +$1,200.
 - hold_time: a string like "45m" or "2h 10m". Match the shape.
 - exit_reason: one of the exit reasons above.
 - reading_key: a short slug naming the behaviour this trade
@@ -219,7 +229,7 @@ Return JSON, no prose, exactly this shape:
       "target": 5860.00,
       "exit": 5852.00,
       "exit_reason": "target hit",
-      "result": 240.00,
+      "result": 1200.00,
       "hold_time": "45m",
       "reading_key": "followed_rule",
       "narrative": "..."
@@ -305,6 +315,12 @@ async def _call_model_for_batch(
     return trades
 
 
+_POINT_VALUE = {
+    "ES": 50, "MES": 5, "CL": 1000, "MCL": 100,
+    "GC": 100, "ZB": 1000, "6E": 125000, "MNQ": 2, "NQ": 20,
+}
+
+
 def _row_consistent(r: dict) -> tuple[bool, str]:
     """Reject a generated trade whose prices cannot all be true.
 
@@ -345,10 +361,7 @@ def _row_consistent(r: dict) -> tuple[bool, str]:
 
     # Futures P&L is per-point x contracts x multiplier. Without
     # the multiplier every futures result looks wrong by 50-1250x.
-    _MULT = {"ES": 50, "MES": 5, "CL": 1000, "MCL": 100,
-             "GC": 100, "ZB": 1000, "6E": 125000, "MNQ": 2,
-             "NQ": 20}
-    mult = _MULT.get((r.get("instrument") or "").strip().upper(), 1)
+    mult = _POINT_VALUE.get((r.get("instrument") or "").strip().upper(), 1)
     pnl_per_unit = (e - x) if d == "short" else (x - e)
     computed = pnl_per_unit * n * mult
     if abs(computed - res) > max(1.0, abs(res) * 0.01):
@@ -375,6 +388,19 @@ async def generate_psychology_batch(
 
     inserted = 0
     for t in trades:
+        # Derive result from the prices rather than trusting the
+        # model's arithmetic. The model chooses instrument,
+        # direction, entry, stop, exit and exit_reason; the result
+        # is computed here.
+        try:
+            _d = (t.get("direction") or "").strip().lower()
+            _e = float(t.get("entry")); _x = float(t.get("exit"))
+            _n = int(t.get("contracts") or 0)
+            _m = _POINT_VALUE.get((t.get("instrument") or "").strip().upper(), 1)
+            _ppu = (_e - _x) if _d == "short" else (_x - _e)
+            t["result"] = round(_ppu * _n * _m, 2)
+        except (TypeError, ValueError):
+            pass
         _ok, _why = _row_consistent(t)
         if not _ok:
             log.warning("psychology_log.row_inconsistent_skipped",
