@@ -47,23 +47,21 @@ VOICE. First person for what the trader does. Impersonal for
 how the condition behaves. Never diagnose the reader. No 'you
 can check,' 'you should,' 'your portfolio.'
 
-WORD BUDGET — you MUST write at least 600 words total:
-
-  Hook          80-120 words
-  Problem       50-70 words
-  Mechanism     120-180 words
-  Diagnostics    4-6 items, 60-90 words each
-  Fixes          4-5 items, 60-90 words each
-  Reframe       15-25 words
-  Checklist     80-120 words
-  CTA           40-60 words
-
-Total minimum: 600. Aim for 700.
+WORD BUDGET — 820 words MINIMUM. Hard floor: an article under 820
+words is rejected. Reach it by developing these beats, not by
+padding:
+  - Mechanism: 150-200 words on how the condition behaves.
+  - Diagnostics: 4-6 observations, 70-100 words each, each drawn
+    from the trader's own process.
+  - Fixes: 4-5 before/after changes, 70-100 words each.
+  - Reframe: one sentence, but develop the paragraph around it.
+Do not repeat a point to add length. If short, add depth to the
+mechanism and the diagnostics, not summary sentences.
 
 FIXES ARE BEFORE/AFTER. Every fix begins with 'I used to' or
 'I now.' Never 'Reduce,' 'Cap,' 'Shift,' 'Monitor,' 'Adjust.'
 
-BEAT SHAPE — eight beats, in order:
+BEAT SHAPE — seven beats, in order:
 
   1. Hook — first person. The trader's own view on the
      condition. 'I used to treat X as Y. Then I saw...'
@@ -71,20 +69,19 @@ BEAT SHAPE — eight beats, in order:
   3. Mechanism — impersonal. How the condition behaves.
      Qualitative. Do not invent a formula.
   4. Diagnostics — first person. 4-6 lived observations from
-     the trader's own process.
+     the trader's own process. Each one states the reading, the
+     trader's threshold, and what it means.
   5. Fixes — 4-5 before/after changes.
   6. Reframe — one sentence, standalone, impersonal.
-  7. Checklist — five questions woven into prose. Each
-     begins with 'Can I' or 'Do I' or 'Have I.' Not a bulleted
-     list.
-  8. CTA — one paragraph, verbatim from the payload.
+  7. End — end on the reframe. No checklist, no CTA, no URL.
+
+CHART. Where the candle chart belongs, write the tag
+[CHART: daily] on its own line. It is replaced with a daily
+candlestick chart of CL. Place it where a visual of price action
+supports the mechanism, usually after beat 4.
 
 Continuous prose. No headings, no bold labels, no bullets,
 no numbered lists. Do not print beat names.
-
-End with this CTA, exactly:
-
-{cta_text}
 """
 
 
@@ -126,18 +123,9 @@ async def generate(
     )
     target_words = target_words_for(subblock["slug"], register, tier)
 
-    from packages.core.config import get_settings as _get_settings
-    _url = _get_settings().product_url
-    cta_text = (
-        "I turned this into a one-page checklist for recognizing "
-        "the condition in your own process. Email me and I'll "
-        f"send it: {_url}"
-    )
-
     user_prompt = PROMPT_TEMPLATE.format(
         coordinate=coord["label"],
         trader_section=trader_section,
-        cta_text=cta_text,
     )
 
     post = await call_llm_json_verified(
@@ -161,7 +149,6 @@ async def generate(
             "tier": tier,
             "coordinate": coord["coord"],
             "coordinate_label": coord["label"],
-            "cta_text": cta_text,
         },
         target_words=target_words,
         form=None,
@@ -222,7 +209,6 @@ async def generate(
             "tier": tier,
             "coordinate": coord["coord"],
             "coordinate_label": coord["label"],
-            "cta_text": cta_text,
         },
         source_urls=[],
         symbols=["CL"],
