@@ -170,6 +170,47 @@ async def generate(
         skip_verify=True,
     )
 
+    # ── Candle chart (CL daily) ──
+    # The trader's process is CL throughout (entry_logic,
+    # position_sizing, exit_logic), and every FM coordinate is a
+    # crude-market concept, so the chart shows CL daily candles.
+    # No trade markers: this is a conceptual essay, not a trade
+    # note. Failure never blocks the article.
+    try:
+        from packages.trading.charts.article_charts import (
+            render_trade_candlestick,
+        )
+        from packages.db.session import get_session_factory as _gsf
+        from packages.db.tenant import set_current_org as _set_org
+
+        _sym = "CL"
+        async with _gsf()() as _chart_s:
+            await _set_org(_chart_s, org_id)
+            _candle_url = await render_trade_candlestick(
+                _chart_s,
+                org_id=org_id,
+                symbol=_sym,
+                timeframe="1d",
+            )
+        if _candle_url:
+            import re as _re
+            _img = f"\n\n![{_sym} 1d candles]({_candle_url})\n\n"
+            _new, _n = _re.subn(
+                r"\[CHART:\s*daily\s*\]", _img, post.body,
+                flags=_re.IGNORECASE,
+            )
+            if _n:
+                post.body = _new
+            else:
+                post.body = post.body.rstrip() + _img
+                log.warning("fundamental_metrics.chart_tag_missing",
+                            symbol=_sym)
+            log.info("fundamental_metrics.candle_inserted",
+                     symbol=_sym, url=_candle_url, replaced=_n)
+    except Exception as _ce:
+        log.warning("fundamental_metrics.candle_failed",
+                    error=str(_ce)[:200])
+
     post_id = await persist_post(
         session,
         org_id=org_id,
@@ -184,7 +225,7 @@ async def generate(
             "cta_text": cta_text,
         },
         source_urls=[],
-        symbols=[],
+        symbols=["CL"],
     )
     await session.commit()
 
