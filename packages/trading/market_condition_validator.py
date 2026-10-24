@@ -16,6 +16,31 @@ import re
 from typing import Any
 
 
+_UNICODE_MAP = {
+    0x2010: "-",   # hyphen
+    0x2011: "-",   # non-breaking hyphen
+    0x2012: "-",   # figure dash
+    0x2013: "-",   # en dash
+    0x2014: "-",   # em dash
+    0x2015: "-",   # horizontal bar
+    0x202F: " ",   # narrow no-break space
+    0x00A0: " ",   # no-break space
+}
+
+
+def _ascii(text: str) -> str:
+    """Normalise Unicode punctuation to ASCII before any match.
+
+    The model writes dates and rules with U+2011 non-breaking
+    hyphens ("2026‑09‑28") and U+202F narrow spaces
+    ("0.5 %"). Every checker compares against ASCII
+    ("2026-09-28", "0.5 %"), so the text must be normalised first
+    or the comparison fails on correct output. This has bitten
+    four separate checks.
+    """
+    return (text or "").translate(_UNICODE_MAP)
+
+
 _REGIME_NAMES = (
     "Compressed-Volatility",
     "Expanded-Volatility",
@@ -624,6 +649,9 @@ def validate_market_condition(
         return ["empty body"]
     if not skeleton:
         return ["market_condition validator: no skeleton supplied"]
+    # Normalise Unicode punctuation once, so every check below
+    # compares ASCII to ASCII.
+    body = _ascii(body)
     reasons: list[str] = []
     reasons.extend(_check_metrics_sourced(body, skeleton))
     reasons.extend(_check_regime_claims(body, skeleton))
