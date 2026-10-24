@@ -139,10 +139,10 @@ def _floor_for(register: str | None) -> int:
         # this register.
         return 550
     if register == "psychology-note":
-        # S.9.25 — Groq writes 500-650 on this register. 525 was
-        # arbitrary and drafted articles at 521-524 words. Floor
-        # at 500, matching the other LLM subblocks.
-        return 500
+        # Editorial standard: 770 minimum, matching the prompt and
+        # the verifier. The prompt directs where the words go so the
+        # model has a route to the length rather than padding.
+        return 770
     if register == "concept-explainer":
         # Groq writes 450-600 words on this register. The 600
         # default floor drafted every piece. Floor at 500.

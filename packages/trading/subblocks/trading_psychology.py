@@ -50,11 +50,19 @@ PROCESS_FIELDS_BY_DIMENSION = {
 
 PROMPT_TEMPLATE_LOG = """You are writing a trading-psychology essay about the discipline to not act.
 
-LENGTH: Write 525–900 words. Aim for 750.
+LENGTH: Write 770–1200 words. MINIMUM 770 — an article under 770
+words is rejected.
 
-The system prompt's default range (500–1200) is a global default.
-For this subblock the acceptable range is 525–900. Write inside
-that range.
+Reach 770 by developing these beats, not by padding:
+  - MECHANISM: 150–200 words. The claim, then the four bias
+    sentences, each naming what the paper measured.
+  - DIAGNOSTICS: five bullets, 80–110 words each. Each states what
+    you did, the rule it broke, and what it cost.
+  - FIXES: 120–160 words of prose on the changes you made.
+  - WHAT THIS MEANS: 100–140 words, including the reconciliation
+    figures.
+Do not pad the hook or the reframe. Length comes from MECHANISM,
+DIAGNOSTICS, FIXES and WHAT-THIS-MEANS.
 
 The reader is a trader. The article is about their state, not the market.
 The source below is the trader's own process and their recent behaviour.
@@ -322,17 +330,17 @@ Rules:
   the trade, not from the trade's own size.
 - Before returning, DO THIS:
     1. Count the words in your draft.
-    2. If the count is under 525, DO NOT RETURN YET. Expand the
+    2. If the count is under 770, DO NOT RETURN YET. Expand the
        MECHANISM and the FIXES only — add more depth to the
        causal chain, more detail to the changes you made. Do
        NOT add more diagnostics bullets — the count is fixed at
        FIVE. Do NOT add more citations than the four biases. Do
        NOT pad the HOOK or the CTA. Then count again.
-    3. If the count is still under 600, repeat step 2.
-    4. Only return when the count is 525 or more.
-- Do NOT pad the HOOK. Do NOT pad the CTA. Length comes from
-  MECHANISM, DIAGNOSTICS, and FIXES only.
-- A draft under 525 words is a failed draft. Do not return it.
+    3. If the count is still under 770, repeat step 2.
+    4. Only return when the count is 770 or more.
+- Do NOT pad the HOOK or the REFRAME. Length comes from MECHANISM,
+  DIAGNOSTICS, FIXES and WHAT-THIS-MEANS only.
+- A draft under 770 words is a failed draft. Do not return it.
 - The cited trade is the ONLY trade you may describe with
   numbers. Do NOT invent a result, a date, a contract count, or
   an instrument that is not in the LATEST TRADE block above.
@@ -635,7 +643,7 @@ _VERIFIER_CHECKS = (
     "gesture ('a narrower gap', 'violations cost more') without the "
     "figures fails.",
 
-    "LENGTH: the article must be at least 500 words. Use the "
+    "LENGTH: the article must be at least 770 words. Use the "
     "word count passed in the prompt; do not recount.",
 )
 
