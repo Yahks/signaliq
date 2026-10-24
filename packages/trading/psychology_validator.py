@@ -39,6 +39,36 @@ def _present(body: str, v: float, *, signed: bool = False) -> bool:
     return False
 
 
+_RETIRED_REFRAMES = (
+    "the rule doesn't end the impulse",
+    "the rule doesn't stop the impulse",
+    "the rule doesn't silence the impulse",
+    "it ends the click",
+    "it stops the click",
+    "it redirects the click",
+    "a stop isn't the trade",
+    "discipline is what's left",
+    "the gap between the impulse and the click",
+)
+
+
+def _check_reframe_not_boilerplate(body: str) -> list[str]:
+    """Reject a reframe copied from a retired template.
+
+    The prompt used to list example reframes; at temperature 0 the
+    model reproduced them verbatim. The examples are gone; this
+    catches a regression.
+    """
+    low = (body or "").lower()
+    for phrase in _RETIRED_REFRAMES:
+        if phrase in low:
+            return [
+                f"reframe reuses a retired template ({phrase!r}) — "
+                f"write a reframe specific to this article"
+            ]
+    return []
+
+
 def validate_psychology(
     body: str,
     readings: dict[str, Any],
@@ -137,6 +167,8 @@ def validate_psychology(
             "chart tag [CHART:daily] was not substituted — the chart "
             "placement failed"
         )
+
+    reasons.extend(_check_reframe_not_boilerplate(body))
 
     # ── 3. backstops ──
     if re.search(r"https?://(?!signaliq\.com/static)", body):

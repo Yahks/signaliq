@@ -163,16 +163,21 @@ FIVE are marked REFERENCE.
 - All COUNTS (win rate, consecutive losses, hold-time averages)
   come from all six rows. Do not invent a count.
 
-- THE RECONCILIATION. The block above splits the full log into
-  compliant and rule-violating trades. Your FIXES or WHAT-THIS-
-  MEANS paragraph MUST state, as figures:
-    (a) compliant: n, net dollars, average per trade;
-    (b) violation: n, net dollars, average per trade;
-    (c) the per-trade gap;
-    (d) the violation rate as a percentage;
-    (e) whether the violations were net positive or net negative,
-        stated as computed. If violations were net positive, say
-        the finding is the per-trade gap, not a loss.
+- THE RECONCILIATION. Your WHAT-THIS-MEANS paragraph MUST
+  contain ONE sentence of exactly this shape, with the figures
+  from the block above substituted in:
+
+      "The compliant trades number N with a net of $X, averaging
+       $A each, while the violations number M with a net of $Y,
+       averaging $B each — a per-trade gap of $G at a V% violation
+       rate."
+
+  Then one more sentence for (e): whether the violations were net
+  positive or net negative, as computed.
+
+  A paragraph that discusses compliance in prose without those
+  six figures — N, X, M, Y, G, V — fails validation. Write the
+  sentence above with your numbers.
   Quote the figures exactly. Do not recompute them from the six
   rows. Do not describe a violation as "costly" if its net is
   positive — say the gap instead.
@@ -259,26 +264,15 @@ FIVE are marked REFERENCE.
    it helps the reader. Do NOT repeat the diagnostics or the
    fixes. This is the analytical paragraph.
 
-7. REFRAME — one sentence. Standalone. Impersonal. It must correct
-   a mistaken equivalence: the reader believes X is Y; the article
-   shows X is not Y, it is Z.
-   CRITICAL: the reframe must be a distinction whose shape has
-   NOT been used before. Forbidden openers:
-     - "Discipline is not…" / "Discipline isn't…"
-     - "The cooldown isn't…"
-     - "The rule isn't…"
-     - "The stop isn't…"
-     - "X is not the absence of Y; it is Z"
-     - "X isn't a [noun]. It's a [noun]."
-   All of those shapes have appeared in previous articles. The
-   reader will recognize them. Choose a shape that has not been
-   used. Examples of new shapes:
-     - "The rule doesn't end the impulse. It ends the click."
-     - "A stop isn't the trade. It's the price of the next one."
-     - "Discipline is what's left when the profit is gone."
-     - "The gap between the impulse and the click is the whole
-        game."
-   NOT a restatement of the mechanism. NOT a platitude. Before
+7. REFRAME — one sentence. Standalone. Impersonal.
+   The reframe must correct THIS article's specific mistake.
+   Name the belief the diagnostics exposed, then state what is
+   actually true. It must be a sentence that could only have
+   been written after reading this article: if it would fit
+   any trading article, it is too general and must be rewritten.
+   Do NOT copy an example. Do NOT write a proverb. Do NOT reuse
+   a sentence from a previous article. Do NOT use a template
+   of the form 'X isn't Y, it's Z'.
    This is the last sentence of the article.
 
 The article ENDS on the reframe. There is NO checklist beat and
