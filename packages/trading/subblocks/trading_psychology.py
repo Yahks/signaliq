@@ -32,9 +32,13 @@ from ..psychology_log import (
 log = get_logger(__name__)
 
 
+# The mechanism beat must ANSWER this question in the model's own
+# words, using the four papers as evidence. It is a question, not a
+# sentence to reproduce: the previous value was a fixed sentence and
+# six of ten articles opened the beat with it verbatim.
 MECHANISM_CLAIM = (
-    "Discipline breaks down when recent outcomes diverge from the plan, "
-    "and the response is to increase size or frequency to recover."
+    "Why does a trader who wrote a rule break it in the moment — and "
+    "what in the four papers explains that specific failure?"
 )
 
 
@@ -91,8 +95,11 @@ until the point is made, and no longer.
    not round the result. Include the CONTENT trade's row id, first
    eight characters, in parentheses.
 
-2. PROBLEM. The pull the trader feels — the impulse that makes them
-   want to act, or to break the rule they wrote. State it plainly.
+2. PROBLEM. In three to five sentences, set out the impulse this
+   article is about: what the trader wanted to do, which rule it
+   pushed against, and what that cost or risked. Describe it as a
+   situation, in your own words — do not label it in one line, and
+   do not open with the words of this instruction.
 
 3. MECHANISM. The claim the whole article rests on, and the
    evidence for it. You must cite all four of these papers, and
@@ -102,9 +109,9 @@ until the point is made, and no longer.
      - Thaler 1980 — mental accounting
      - Odean 1998 — the disposition effect
      - Barber and Odean 2000 — overtrading after losses
-   Build a causal chain from the paper's finding to this trader's
-   behaviour. Cite no other paper, author, or year. The claim you
-   are arguing is:
+   Build a causal chain from each paper's finding to this trader's
+   behaviour. Cite no other paper, author, or year. Answer this
+   question in your own words — do not repeat it as a sentence:
 
        {mechanism_claim}
 

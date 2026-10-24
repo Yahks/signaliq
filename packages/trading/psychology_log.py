@@ -142,6 +142,14 @@ async def _read_behaviour_shape(
 
     exit_reasons: dict[str, int] = {}
     for r in rows:
+        _ok, _why = _row_consistent(r)
+        if not _ok:
+            log.warning("psychology_log.row_inconsistent",
+                        coord=coord, reason=_why,
+                        instrument=r.get("instrument"),
+                        entry=r.get("entry"), stop=r.get("stop"),
+                        exit=r.get("exit"), result=r.get("result"))
+            continue
         er = (r["exit_reason"] or "?").strip()
         exit_reasons[er] = exit_reasons.get(er, 0) + 1
 
@@ -303,6 +311,62 @@ async def _call_model_for_batch(
             )
 
     return trades
+
+
+def _row_consistent(r: dict) -> tuple[bool, str]:
+    """Reject a generated trade whose prices cannot all be true.
+
+    Row 60a6d5c2 was a short at 80.00 with a stop at 80.50, an exit
+    at 79.51, exit_reason 'stop hit', and result -$487. All four
+    cannot hold: 79.51 is below the 80.00 entry, so the trade
+    profited; and 'stop hit' at 79.51 is impossible with the stop
+    at 80.50. Articles then described that row faithfully and every
+    gate passed, because they matched the row.
+
+    Checks:
+      - stop on the correct side of entry for the direction
+      - 'stop hit' means exit == stop
+      - result matches (entry-exit)*n for a short, (exit-entry)*n
+        for a long, within a tolerance
+      - result's sign matches the price move
+    """
+    try:
+        d = (r.get("direction") or "").strip().lower()
+        e = float(r.get("entry"))
+        s = float(r.get("stop"))
+        x = float(r.get("exit"))
+        n = int(r.get("contracts") or 0)
+        res = float(r.get("result"))
+    except (TypeError, ValueError):
+        return False, "missing or non-numeric price field"
+
+    if n <= 0:
+        return False, "non-positive contracts"
+    if d == "short" and s <= e:
+        return False, f"short stop {s} not above entry {e}"
+    if d == "long" and s >= e:
+        return False, f"long stop {s} not below entry {e}"
+
+    reason = (r.get("exit_reason") or "").strip().lower()
+    if reason == "stop hit" and abs(x - s) > 1e-6:
+        return False, f"'stop hit' but exit {x} != stop {s}"
+
+    # Futures P&L is per-point x contracts x multiplier. Without
+    # the multiplier every futures result looks wrong by 50-1250x.
+    _MULT = {"ES": 50, "MES": 5, "CL": 1000, "MCL": 100,
+             "GC": 100, "ZB": 1000, "6E": 125000, "MNQ": 2,
+             "NQ": 20}
+    mult = _MULT.get((r.get("instrument") or "").strip().upper(), 1)
+    pnl_per_unit = (e - x) if d == "short" else (x - e)
+    computed = pnl_per_unit * n * mult
+    if abs(computed - res) > max(1.0, abs(res) * 0.01):
+        return False, (
+            f"result {res} does not match the prices "
+            f"(computed {computed:.2f})"
+        )
+    if computed * res < 0:
+        return False, "result sign contradicts the price move"
+    return True, ""
 
 
 async def generate_psychology_batch(
