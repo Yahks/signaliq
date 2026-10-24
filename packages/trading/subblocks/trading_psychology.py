@@ -50,19 +50,10 @@ PROCESS_FIELDS_BY_DIMENSION = {
 
 PROMPT_TEMPLATE_LOG = """You are writing a trading-psychology essay about the discipline to not act.
 
-LENGTH: Write 770–1200 words. MINIMUM 770 — an article under 770
-words is rejected.
-
-Reach 770 by developing these beats, not by padding:
-  - MECHANISM: 150–200 words. The claim, then the four bias
-    sentences, each naming what the paper measured.
-  - DIAGNOSTICS: five bullets, 80–110 words each. Each states what
-    you did, the rule it broke, and what it cost.
-  - FIXES: 120–160 words of prose on the changes you made.
-  - WHAT THIS MEANS: 100–140 words, including the reconciliation
-    figures.
-Do not pad the hook or the reframe. Length comes from MECHANISM,
-DIAGNOSTICS, FIXES and WHAT-THIS-MEANS.
+LENGTH: at least 770 words. An article under 770 words is
+rejected. There is no per-beat word count — write each beat until it
+does what the specification asks, and the total will follow. Do not
+pad; do not summarise a beat to save space.
 
 The reader is a trader. The article is about their state, not the market.
 The source below is the trader's own process and their recent behaviour.
@@ -86,199 +77,92 @@ Read it. Write about the gap.
 
 {research_block_text}
 
-**The article must do this:**
+**The article must do this.** Each beat below states what it
+must accomplish. How many sentences it takes is your decision — write
+until the point is made, and no longer.
 
-1. HOOK — open on one thing from the trader's own process or behaviour.
-   Not a summary. The moment it caught your attention. First person.
-   The reader watches you read it.
+1. HOOK. Open on the moment in the trader's own behaviour that
+   caught your attention. The reader watches you read the source.
+   First person, past tense. Establish, early and exactly, which
+   trade the article is about: its date, its instrument's ticker in
+   parentheses, its size, its result with sign, and how long it was
+   held. Every one of those comes from the CONTENT trade in the
+   batch above, quoted as written — do not paraphrase the size, do
+   not round the result. Include the CONTENT trade's row id, first
+   eight characters, in parentheses.
 
-2. PROBLEM — one sentence. The pull the trader feels — the one that
-   makes them want to act, or to break the rule they wrote.
+2. PROBLEM. The pull the trader feels — the impulse that makes them
+   want to act, or to break the rule they wrote. State it plainly.
 
-3. MECHANISM — the one claim the whole article rests on. Write
-   FOUR to FIVE sentences. The shape is fixed:
-
-     Sentence 1: restate the claim in your own words. NO paper
-       name. NO citation. Just the claim.
-     Sentences 2–5: cite the four biases. ONE bias per sentence.
-       Each sentence names the paper AND what the paper
-       SPECIFICALLY measured — not the general claim.
-
-   The four biases you MUST cite, one per sentence:
-     - Loss aversion — Kahneman and Tversky 1979
-     - Mental accounting — Thaler 1980
-     - The disposition effect — Odean 1998
-     - Overtrading after losses — Barber and Odean 2000
-
-   CORRECT shape:
-     "The urge to re-enter after a loss is a documented reflex.
-      Kahneman and Tversky 1979 showed that losses loom larger
-      than equivalent gains, driving disproportionate action.
-      Thaler 1980 showed that traders treat each loss as its
-      own mental account. Odean 1998 showed that the disposition
-      effect is strongest after a losing streak. Barber and
-      Odean 2000 showed that investors trade more frequently
-      after losses, trying to recover."
-   WRONG shape:
-     "Discipline breaks down when recent outcomes diverge from
-      the plan, as Barber and Odean 2000 demonstrate."
-     (One paper. Wrong claim. Not four biases.)
-
-   The claim you must argue is:
+3. MECHANISM. The claim the whole article rests on, and the
+   evidence for it. You must cite all four of these papers, and
+   for each one say what that paper specifically measured, not just
+   its general subject:
+     - Kahneman and Tversky 1979 — loss aversion
+     - Thaler 1980 — mental accounting
+     - Odean 1998 — the disposition effect
+     - Barber and Odean 2000 — overtrading after losses
+   Build a causal chain from the paper's finding to this trader's
+   behaviour. Cite no other paper, author, or year. The claim you
+   are arguing is:
 
        {mechanism_claim}
 
-   FIVE sentences. Claim first, then the four biases. Each bias
-   in its own sentence with what the paper measured. This is the
-   longest beat in the article. Do NOT shorten it.
+   Take as much space as the argument needs. This is the article's
+   analytical core.
 
-CONTENT TRADE vs REFERENCE TRADES:
-The BATCH above contains six trades. ONE is marked CONTENT.
-FIVE are marked REFERENCE.
+4. DIAGNOSTICS. A bulleted list of five incidents, each one
+   traceable to a row in the batch above. Bullet 1 is the CONTENT
+   trade; bullets 2-5 are four different reference trades, cited by
+   date and instrument (not by row id). For each incident say what
+   happened, which rule it broke, and what it cost — and where the
+   source lets you, why it happened. Vary how the bullets open; do
+   not start every one the same way. The bullet that describes the
+   CONTENT trade must end with the literal token [CHART:daily] on
+   its own line, and must state that trade's entry, stop, exit, and
+   what the price did between them — a chart of exactly that
+   accompanies the article. After the fifth bullet the diagnostics
+   end; nothing follows them until the next beat. This is the only
+   list in the piece, and it has five items.
 
-- The HOOK describes the CONTENT trade. The hook's FIRST sentence
-  MUST state FIVE things from the CONTENT trade, in this order:
-    1. the date,
-    2. the instrument's ticker in parentheses,
-    3. the contracts count as a number word ("three contracts",
-       "the four-contract MNQ short", "one contract"),
-    4. the result (with sign),
-    5. the hold time.
-  Every value comes from the batch, exactly as written. Do NOT
-  paraphrase the contracts count. Do NOT omit it.
-  After the first sentence, write the CONTENT trade's id in
-  parentheses: "(row id: <first 8 chars of the CONTENT id>)".
-  Example shape: "On 2026-05-06 I shorted the euro future (6E)
-  with one contract, held 25 minutes for a -$1,225 stop out
-  (row id: 1cc5bcd0)."
+5. FIXES. The changes the trader made, in prose — not a list, and
+   not a repetitive "I used to X. Now I Y." Every fix must name the
+   impulse it targets, and say how it works in practice:
+     - holding losers (Odean 1998) — a stop that cannot be overridden
+     - size creep after wins (Thaler 1980) — a hard sizing cap
+     - frequency after losses (Barber and Odean 2000) — a mandatory
+       cooldown
+     - unaudited decisions — a rule-tagged journal
+   Four changes at minimum. Say what each one does to the impulse,
+   not just what the rule is.
 
-- The DIAGNOSTICS has exactly FIVE bullets. Bullet 1 describes
-  the CONTENT trade. Bullets 2–5 each describe ONE of the four
-  earliest REFERENCE trades — not all five refs. Cite each
-  reference trade by its date and instrument. Do NOT cite a
-  reference trade's id.
+6. WHAT THIS MEANS. Step back from this trader and say what the
+   pattern shows for a systematic process in general. This is the
+   analytical paragraph, not a summary of the fixes and not a
+   restatement of the mechanism.
 
-- The MECHANISM cites the four papers. Not the trades.
+   It must state the reconciliation figures exactly as the block
+   above computes them: the compliant count, the compliant net
+   dollars and average, the violation count, the violation net
+   dollars and average, the per-trade gap, and the violation rate.
+   State also how many violations were profitable and their net —
+   a violation that wins is the most dangerous kind, because it
+   reinforces the behaviour. State the sample period.
 
-- All COUNTS (win rate, consecutive losses, hold-time averages)
-  come from all six rows. Do not invent a count.
+   Say the gap "is consistent with" rule adherence; do not say it
+   proves or demonstrates causation. Instrument mix, size and
+   regime can confound an unpaired sample.
 
-- THE RECONCILIATION. Your WHAT-THIS-MEANS paragraph MUST
-  contain ONE sentence of exactly this shape, with the figures
-  from the block above substituted in:
+7. REFRAME. The closing paragraph. Explain what the diagnostics
+   revealed: what the trader believed, why that belief was wrong,
+   and what is true instead. Write it as an explanation to a
+   colleague. Do not compress it into a slogan, do not build it on
+   a contrast formula, and do not reuse a phrase from a previous
+   article. If it would fit any trading article, it is too
+   general and must be rewritten.
 
-      "The compliant trades number N with a net of $X, averaging
-       $A each, while the violations number M with a net of $Y,
-       averaging $B each — a per-trade gap of $G at a V% violation
-       rate."
-
-  Then one more sentence for (e): whether the violations were net
-  positive or net negative, as computed.
-
-  A paragraph that discusses compliance in prose without those
-  six figures — N, X, M, Y, G, V — fails validation. Write the
-  sentence above with your numbers.
-  Quote the figures exactly. Do not recompute them from the six
-  rows. Do not describe a violation as "costly" if its net is
-  positive — say the gap instead.
-
-  ALSO STATE:
-    (f) how many violations were PROFITABLE and their net — a
-        violation that wins is the most dangerous kind, because it
-        reinforces the behaviour. Say it explicitly.
-    (g) the sample period (sample_period in the block).
-    (h) THE CHART TAG. The diagnostics bullet that describes the
-        cited trade must END with the literal token [CHART:daily]
-        on its own line. In that same bullet, state the entry, the
-        stop, the exit, and what the price did between them — the
-        chart shows exactly that. Write the token exactly as
-        [CHART:daily], brackets and colon included. An article
-        without it fails validation.
-
-  MECHANISM -> FIX MAPPING. Each fix must name the mechanism it
-  addresses, not just the rule it enforces:
-    - holding losers (disposition, Odean 1998) -> locked stop
-    - size creep after wins (house money) -> sizing cap
-    - frequency after losses (Barber & Odean 2000) -> cooldown
-    - skipped review -> rule-tagged journal
-  Do not list four fixes without saying which impulse each one
-  targets.
-
-  CAUSAL LANGUAGE. Say the gap "is consistent with" rule adherence,
-  not that it "demonstrates" or "proves" it. Instrument mix, size,
-  and regime can confound the comparison. Do not claim causation
-  from an unpaired sample.
-
-- Do NOT invent a trade that is not one of the six rows above.
-
-4. DIAGNOSTICS — ONE bulleted list. Exactly FIVE items. Each item
-   starts with "- " and is ONE sentence. Each item describes a
-   distinct lived failure: what you did, what rule it broke, what
-   it cost. Five bullets, five failures.
-   DO NOT start every bullet with "I". Vary the openings:
-     - "The first time I ignored the sizing cap, the trade…"
-     - "A short on the currency future was cut early, before…"
-     - "One morning, after a loss, I re-entered before…"
-     - "The stop was intact. I exited anyway."
-     - "A winning position on the gold contract grew by two
-        contracts before I noticed."
-   After the fifth bullet, end the diagnostics. Then a blank
-   line, then the FIXES beat. Do NOT add a URL, an audit link, or
-   any sentence after the fifth bullet.
-   This is the ONLY list in the piece. EXACTLY FIVE BULLETS.
-   Bullet 1 describes the CONTENT trade (the followed_rule win).
-   Bullets 2–5 each describe ONE different reference trade — the
-   four earliest by date. Five bullets, five trades.
-   The rule is context, if it appears at all.
-
-5. FIXES — ONE paragraph. NOT a list. NOT "I used to X. Now I Y."
-   written five times. Describe the changes in prose. The reader
-   should feel the change in the writing. Vary the openings. Some
-   shapes:
-     - "The sizing cap is now the first thing I check."
-     - "The cooldown after a loss is non-negotiable."
-     - "The stop exits on its own. I do not intervene."
-     - "Every win closes before I consider scaling."
-   Four to five changes, in one paragraph, in the article's voice.
-   Each fix is behavioural. Not a market rule.
-
-6. WHAT THIS MEANS — one paragraph, three to five sentences.
-   Interpret the pattern for the reader. Not a summary of the
-   fixes. Not a restatement of the mechanism. A generalisation
-   the reader can apply to their own trading. Start with the
-   phrase "Here's what this means for a systematic trader
-   generally."
-   Then give three to five sentences of interpretation. Each
-   sentence names a general principle you learned from the
-   batch — not a rule, a principle. Example shape:
-     "First, the tags matter more than the trades. The same
-      four trades appeared under multiple labels; the pattern
-      is in the overlap, not in any single loss.
-      Second, the cooldown is the highest-leverage rule I have.
-      It targets the recovery impulse directly. Every other
-      rule addresses a symptom.
-      Third, the fix is temporal, not technical. I cannot
-      automate away the impulse, but I can insert a mandatory
-      delay between the impulse and the action."
-   Do NOT number the sentences as "First, Second, Third" unless
-   it helps the reader. Do NOT repeat the diagnostics or the
-   fixes. This is the analytical paragraph.
-
-7. REFRAME — one sentence. Standalone. Impersonal.
-   The reframe must correct THIS article's specific mistake.
-   Name the belief the diagnostics exposed, then state what is
-   actually true. It must be a sentence that could only have
-   been written after reading this article: if it would fit
-   any trading article, it is too general and must be rewritten.
-   Do NOT copy an example. Do NOT write a proverb. Do NOT reuse
-   a sentence from a previous article. Do NOT use a template
-   of the form 'X isn't Y, it's Z'.
-   This is the last sentence of the article.
-
-The article ENDS on the reframe. There is NO checklist beat and
-NO CTA beat: no five-question list, no 'Can I'/'Do I'/'Have I'
-run, no discipline-artifact offer, no 'email me', no URL. The
-reframe is the last sentence.
+The article ends on the reframe. There is no checklist, no CTA, no
+URL, no artifact offer.
 
 
    The article ends on the reframe. No CTA, no artifact offer,
@@ -652,14 +536,16 @@ _VERIFIER_CHECKS = (
     "occurrence of \"the trader\", \"the desk\", or second-person "
     "address (\"you\", \"your\") except inside a quoted source.",
 
-    "ENDING: the article must END on the reframe — one standalone "
-    "DECLARATIVE sentence that shifts the reader's thinking. There is "
+    "ENDING: the article must END on the reframe — a closing "
+    "paragraph of three to four sentences of plain prose that "
+    "explains what the diagnostics revealed: what the trader "
+    "believed, why it was wrong, and what is true instead. It is an "
+    "explanation, not a slogan, and not a single sentence. There is "
     "NO CTA, NO discipline-artifact offer, NO URL, and NO checklist "
     "for this register. A checklist is any run of questions in the "
     "reader's voice — 'Do I…?', 'Can I…?', 'Have I…?', 'Did I…?' — "
     "whether at the end or in the body. If the article contains such "
-    "a run, or ends with an offer or a URL or a question, it fails. "
-    "The final sentence must not end in a question mark.",
+    "a run, or ends with an offer or a URL or a question, it fails.",
 
     "INSTRUMENT: the cited trade's instrument must appear in the "
     "article at least once as a standalone token.",

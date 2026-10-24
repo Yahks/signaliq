@@ -69,6 +69,34 @@ def _check_reframe_not_boilerplate(body: str) -> list[str]:
     return []
 
 
+def _check_reframe_paragraph(body: str) -> list[str]:
+    """The article must end on a 3-4 sentence explanatory paragraph.
+
+    A one-line reframe invites a contrast template ("X is not Y; it
+    is Z"), which is what the prompt used to hand the model and
+    what it reproduced. Requiring prose forces an explanation.
+    """
+    paras = [p.strip() for p in (body or "").strip().split("\n\n")
+             if p.strip()]
+    # skip a trailing image (the chart)
+    while paras and paras[-1].startswith("!["):
+        paras.pop()
+    if not paras:
+        return ["article has no closing paragraph"]
+    last = paras[-1]
+    sentences = [s for s in __import__("re").split(
+        r"(?<=[.!?])\s+", last) if s.strip()]
+    # A single sentence is the slogan shape the prompt forbids.
+    # Beyond that, length is the model's call — the prompt no longer
+    # specifies a sentence count, so neither does this check.
+    if len(sentences) < 2:
+        return [
+            "the closing paragraph is a single sentence; the reframe "
+            "must be an explanation, not a one-line slogan"
+        ]
+    return []
+
+
 def validate_psychology(
     body: str,
     readings: dict[str, Any],
@@ -169,6 +197,7 @@ def validate_psychology(
         )
 
     reasons.extend(_check_reframe_not_boilerplate(body))
+    reasons.extend(_check_reframe_paragraph(body))
 
     # ── 3. backstops ──
     if re.search(r"https?://(?!signaliq\.com/static)", body):
