@@ -21,6 +21,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
+from packages.trading.costs import net_result
 
 log = get_logger(__name__)
 
@@ -164,7 +165,8 @@ def _batch_performance_block(
         result = t.get("result")
         if result is None:
             continue
-        r = float(result)
+        # Net of measured slippage and estimated commission.
+        r = net_result(t)
         if r > 0:
             wins.append(r)
         elif r < 0:
@@ -241,7 +243,8 @@ def _batch_performance_block(
     _breakeven_display = f"{_breakeven_win_rate * 100:.1f}%"
 
     lines = [
-        "BATCH PERFORMANCE (computed by Python, all values are exact):",
+        "BATCH PERFORMANCE (computed by Python; net of measured "
+        "slippage and estimated $2/trade commission):",
         "",
         f"  batch_definition: last {total} diagnostics, excluding subject trade",
         f"  batch_size: {total}",
@@ -1495,6 +1498,7 @@ async def pick_trades(
         SELECT t.id::text, t.traded_at, t.instrument, t.direction,
                t.setup, t.entry, t.contracts, t.stop, t.atr_at_entry,
                t.exit, t.exit_reason, t.result,
+               t.entry_slippage, t.exit_slippage, t.commission_usd,
                COALESCE(t.batch_id::text, '') AS batch_id
         FROM trade_log t
         WHERE t.org_id = :oid

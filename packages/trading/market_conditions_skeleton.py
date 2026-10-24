@@ -42,6 +42,7 @@ from typing import Any
 from sqlalchemy import text as sql_text
 
 from .conditions_compute import compute_conditions
+from .costs import net_result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -280,7 +281,8 @@ async def _trade_linkage(
     """
     start = as_of - timedelta(days=TRADE_LINKAGE_DAYS)
     rows = (await session.execute(sql_text("""
-        SELECT symbol, setup, result, direction
+        SELECT symbol, setup, result, direction,
+               entry_slippage, exit_slippage, commission_usd
         FROM trade_log
         WHERE org_id = :oid AND deleted_at IS NULL
           AND used_in_article_id IS NOT NULL
@@ -288,9 +290,9 @@ async def _trade_linkage(
         ORDER BY traded_at
     """), {"oid": org_id, "start": start, "as_of": as_of})).mappings().all()
     trades = [dict(r) for r in rows]
-    wins = sum(1 for t in trades if (t.get("result") or 0) > 0)
-    losses = sum(1 for t in trades if (t.get("result") or 0) < 0)
-    net = sum(float(t.get("result") or 0) for t in trades)
+    wins = sum(1 for t in trades if net_result(t) > 0)
+    losses = sum(1 for t in trades if net_result(t) < 0)
+    net = sum(net_result(t) for t in trades)
     # Top symbols by frequency, capped — the full list is noise.
     freq: dict[str, int] = {}
     for t in trades:
@@ -355,7 +357,8 @@ async def _conditional_expectancy(
     current_label = _regime_label(dict(snaps[-1]))
 
     trades = (await session.execute(sql_text("""
-        SELECT traded_at, result
+        SELECT traded_at, result,
+               entry_slippage, exit_slippage, commission_usd
         FROM trade_log
         WHERE org_id = :oid AND deleted_at IS NULL
           AND used_in_article_id IS NOT NULL
@@ -371,7 +374,7 @@ async def _conditional_expectancy(
 
     for t in trades:
         td = t["traded_at"]
-        r = float(t["result"] or 0)
+        r = net_result(dict(t))
         if td < earliest:
             unlabeled += 1
             continue
@@ -623,7 +626,8 @@ async def build_conditions_skeleton(
     # ── TRADE LINKAGE ──
     linkage = await _trade_linkage(session, org_id, as_of)
     lines.append("TRADE LINKAGE (trades that appeared in my notes "
-                 "in the window ending at the snapshot date):")
+                 "in the window ending at the snapshot date; figures "
+                 "net of measured slippage and estimated commission):")
     lines.append(f"  window: {linkage['start']} → {linkage['as_of']} "
                  f"({linkage['window_days']} days)")
     lines.append(f"  window_start: {linkage['start']}")
