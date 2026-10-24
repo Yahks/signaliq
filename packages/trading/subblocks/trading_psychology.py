@@ -369,6 +369,12 @@ Rules:
 - The article MUST name the cited trade's instrument, contracts,
   result, and hold time, EACH at least once, inside the body.
   Quote them exactly as they appear in the LATEST TRADE block.
+- THE CHART. A price chart of the cited trade's instrument is
+  appended after the article. Refer to it once, in the diagnostics
+  or the fixes: name the entry price, the stop, and the exit as
+  they appear on the chart, and what the price did between them.
+  Do not describe a chart you were not given; use only the entry,
+  stop, exit and result from the LATEST TRADE block.
 
 Voice: First person throughout. The reader is watching you read the
 trader's process. Never address the reader as 'you'.
@@ -580,7 +586,10 @@ async def fetch_trader_state(
     # ── The cited trade ────────────────────────────────────────────
     latest = {
         "traded_at": str(cited.get("traded_at") or "")[:10],
-        "instrument": cited.get("instrument"),
+        "instrument": (
+            str(cited.get("instrument") or "").strip().strip("'\"")
+            or None
+        ),
         "direction": cited.get("direction"),
         "contracts": cited.get("contracts"),
         "entry": (
@@ -1005,34 +1014,43 @@ async def generate(
     # a chart query on it raises InterfaceError('connection is
     # closed'). Roll back first so the chart has a usable
     # connection, or skip it cleanly.
+    # Candlestick chart in its OWN session.
+    #
+    # The content verifier above makes an LLM call on `session`. A
+    # network failure there, or the rollback that follows it, can
+    # leave that session without the RLS context — a market_history
+    # query then returns 0 rows silently (candle_too_few), which is
+    # how every psychology chart failed. A fresh session has a clean
+    # connection and a fresh set_config, so it cannot inherit that
+    # state.
     try:
-        try:
-            await session.rollback()
-        except Exception:
-            pass
         from packages.trading.charts.article_charts import (
             render_trade_candlestick,
         )
+        from packages.db.session import get_session_factory as _gsf
+        from packages.db.tenant import set_current_org as _set_org
         _lt = latest_trade or {}
-        _candle_url = await render_trade_candlestick(
-            session,
-            org_id=org_id,
-            symbol=_lt.get("instrument") or "",
-            timeframe="1d",
-            entry=_lt.get("entry"),
-            stop=_lt.get("stop"),
-            target=_lt.get("target"),
-            exit_price=_lt.get("exit"),
-            entry_time=_lt.get("entry_time"),
-            exit_time=_lt.get("exit_time"),
-        )
+        _sym = (_lt.get("instrument") or "").strip().strip("'\"")
+        async with _gsf()() as _chart_s:
+            await _set_org(_chart_s, org_id)
+            _candle_url = await render_trade_candlestick(
+                _chart_s,
+                org_id=org_id,
+                symbol=_sym,
+                timeframe="1d",
+                entry=_lt.get("entry"),
+                stop=_lt.get("stop"),
+                target=_lt.get("target"),
+                exit_price=_lt.get("exit"),
+                entry_time=_lt.get("entry_time"),
+                exit_time=_lt.get("exit_time"),
+            )
         if _candle_url:
             post.body = post.body.rstrip() + (
-                f"\n\n![{_lt.get('instrument') or 'trade'} 1d "
-                f"candles]({_candle_url})\n"
+                f"\n\n![{_sym or 'trade'} 1d candles]({_candle_url})\n"
             )
             log.info("trading_psychology.candle_inserted",
-                     symbol=_lt.get("instrument"), url=_candle_url)
+                     symbol=_sym, url=_candle_url)
     except Exception as _ce:
         log.warning("trading_psychology.candle_failed",
                     error=str(_ce)[:200])

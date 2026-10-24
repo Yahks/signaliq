@@ -120,6 +120,16 @@ def validate_psychology(
             f"cited trade: result (${float(lt['result']):+,.2f}) does "
             f"not appear"
         )
+    # the charted trade's entry must be named, so the article refers
+    # to the prices on the chart it accompanies
+    if lt.get("entry") is not None and not _present(
+        body, float(lt["entry"])
+    ):
+        reasons.append(
+            f"chart: the cited trade's entry price "
+            f"({float(lt['entry']):.2f}) does not appear — name the "
+            f"entry so the article refers to the charted trade"
+        )
 
     # ── 3. backstops ──
     if re.search(r"https?://(?!signaliq\.com/static)", body):
