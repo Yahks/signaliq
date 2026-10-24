@@ -999,7 +999,17 @@ async def generate(
     # Candlestick chart for the cited trade's instrument. Appended
     # after the reframe — there is no table and no CTA in this
     # register, so the chart is the final element.
+    #
+    # The content verifier above makes an LLM call; if that call
+    # fails at the network layer the session can be left closed, and
+    # a chart query on it raises InterfaceError('connection is
+    # closed'). Roll back first so the chart has a usable
+    # connection, or skip it cleanly.
     try:
+        try:
+            await session.rollback()
+        except Exception:
+            pass
         from packages.trading.charts.article_charts import (
             render_trade_candlestick,
         )

@@ -20,6 +20,23 @@ from packages.core.logging import get_logger
 log = get_logger(__name__)
 
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+
+# Futures trade on Yahoo under a "=F" suffix (ES=F, CL=F, ...).
+# The rest of the system stores and looks them up under the bare
+# symbol the psychology incidents use (ES, CL, GC, ZB, 6E, MNQ), so
+# translate at the yfinance boundary and nowhere else.
+_FUTURES = {
+    "ES": "ES=F",
+    "CL": "CL=F",
+    "GC": "GC=F",
+    "ZB": "ZB=F",
+    "6E": "6E=F",
+    "MNQ": "MNQ=F",
+}
+
+
+def _yahoo_symbol(symbol: str) -> str:
+    return _FUTURES.get((symbol or "").strip().upper(), symbol)
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -73,7 +90,7 @@ async def fetch_timeframe_closes(
     def _sync_fetch() -> list[dict[str, Any]]:
         import yfinance as yf  # type: ignore[import-untyped]
         try:
-            df = yf.Ticker(symbol).history(
+            df = yf.Ticker(_yahoo_symbol(symbol)).history(
                 period=period, interval=interval, auto_adjust=False,
             )
         except Exception as exc:
@@ -227,6 +244,14 @@ _DEFAULT_SERIES = [
     ("GLD",  "Gold",          "asset_class"),
     ("HYG",  "High-yield",    "asset_class"),
     ("UUP",  "Dollar index",  "asset_class"),
+    # Futures used by the trading and psychology incident logs.
+    # Stored under the bare symbol; _yahoo_symbol maps to =F.
+    ("ES",   "S&P 500 futures", "futures"),
+    ("CL",   "Crude oil",       "futures"),
+    ("GC",   "Gold futures",    "futures"),
+    ("ZB",   "Treasury bond",   "futures"),
+    ("6E",   "Euro FX",         "futures"),
+    ("MNQ",  "Micro Nasdaq",    "futures"),
 ]
 
 
