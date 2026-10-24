@@ -142,14 +142,6 @@ async def _read_behaviour_shape(
 
     exit_reasons: dict[str, int] = {}
     for r in rows:
-        _ok, _why = _row_consistent(r)
-        if not _ok:
-            log.warning("psychology_log.row_inconsistent",
-                        coord=coord, reason=_why,
-                        instrument=r.get("instrument"),
-                        entry=r.get("entry"), stop=r.get("stop"),
-                        exit=r.get("exit"), result=r.get("result"))
-            continue
         er = (r["exit_reason"] or "?").strip()
         exit_reasons[er] = exit_reasons.get(er, 0) + 1
 
@@ -383,6 +375,14 @@ async def generate_psychology_batch(
 
     inserted = 0
     for t in trades:
+        _ok, _why = _row_consistent(t)
+        if not _ok:
+            log.warning("psychology_log.row_inconsistent_skipped",
+                        coord=coord, reason=_why,
+                        instrument=t.get("instrument"),
+                        entry=t.get("entry"), stop=t.get("stop"),
+                        exit=t.get("exit"), result=t.get("result"))
+            continue
         try:
             await session.execute(sql_text("""
                 INSERT INTO psychology_trade_log (
@@ -474,7 +474,29 @@ async def read_next_unused(
         LIMIT 1
     """), {"oid": org_id, "coord": coord})).mappings().first()
 
-    return dict(row) if row else None
+    if not row:
+        return None
+
+    _cand = dict(row)
+    _ok, _why = _row_consistent(_cand)
+    if not _ok:
+        # An impossible row is bad data, not a bad article. Retire it
+        # so it can never be cited, then take the next.
+        log.warning(
+            "psychology_log.row_inconsistent_skipped",
+            row_id=str(_cand["id"])[:8], reason=_why,
+            instrument=_cand.get("instrument"),
+        )
+        await session.execute(sql_text("""
+            UPDATE psychology_trade_log SET deleted_at = now()
+            WHERE id = :i AND deleted_at IS NULL
+        """), {"i": _cand["id"]})
+        await session.commit()
+        return await read_next_unused(
+            session, org_id=org_id, coord=coord,
+        )
+
+    return _cand
 
 
 async def read_all_for_coord(
