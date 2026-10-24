@@ -38,15 +38,13 @@ REGISTERS: dict[str, str] = {
         "  You are the trader, writing about your own operation. First person — 'I' and 'my', never 'you'.\n"
         "  Reader: systematic traders, technical, skeptical. Do not explain RSI, SMA, ATR, VIX, or any term they already know.\n"
         "  Voice: practitioner explaining to a smart peer. Plain declaratives. Short sentences. Concrete over abstract. Confident on facts, honest on limits.\n"
-        "  Shape — eight beats, continuous prose, no headings, no bold labels, no bullets, no numbered lists. The beats are the shape of the piece, not labels for it. Do NOT print 'Hook', 'Mechanism', 'Diagnostics', 'Fixes', 'Reframe', 'CTA', 'Checklist', or any of those words as a heading.\n"
+        "  Shape — six beats, continuous prose, no headings, no bold labels, no bullets, no numbered lists. The beats are the shape of the piece, not labels for it. Do NOT print 'Hook', 'Mechanism', 'Diagnostics', 'Fixes', 'Reframe', 'CTA', 'Checklist', or any of those words as a heading.\n"
         "    1. Hook — a dated scene from your own trading. Something you watched happen.\n"
         "    2. Problem — one plain sentence. The pull you feel.\n"
         "    3. Mechanism — why the pull happens. The causal chain, tied to the papers and the batch.\n"
         "    4. Diagnostics — five distinct lived failures. Each opens on what you did, not on the rule.\n"
         "    5. Fixes — the changes you made. Continuous prose.\n"
-        "    6. Reframe — one sentence the reader remembers.\n"
-        "    7. Checklist — five items, max.\n"
-        "    8. CTA — a discipline artifact the article earned. Ends with https://signaliq.com."
+        "    6. Reframe — one sentence the reader remembers. End on the reframe. There is NO checklist and NO CTA for psychology-note.\n"
     ),
     "market-structure": (
         "Register: market-structure (the market's shape, not the trader's account).\n"

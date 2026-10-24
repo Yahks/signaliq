@@ -180,11 +180,9 @@ FIVE are marked REFERENCE.
      - "The stop was intact. I exited anyway."
      - "A winning position on the gold contract grew by two
         contracts before I noticed."
-   After the fifth bullet, on its own line, write EXACTLY this
-   sentence and nothing else:
-   "The rule audit is drawn from my trading journal. The full log —
-    with every tag — is at https://signaliq.com/audit."
-   Then a blank line, then the FIXES beat.
+   After the fifth bullet, end the diagnostics. Then a blank
+   line, then the FIXES beat. Do NOT add a URL, an audit link, or
+   any sentence after the fifth bullet.
    This is the ONLY list in the piece. EXACTLY FIVE BULLETS.
    Bullet 1 describes the CONTENT trade (the followed_rule win).
    Bullets 2–5 each describe ONE different reference trade — the
@@ -260,22 +258,16 @@ FIVE are marked REFERENCE.
    diagnosed a broken rule, the artifact is a rule-audit worksheet.
    Read your own article and name the artifact it earned.
 
-   Shape (the words are yours; the shape is fixed):
-       “I keep the [artifact] I now use every session — email me
-        and I'll send it: https://signaliq.com”
+   There is NO CTA. Do NOT offer an artifact, do NOT say
+   "email me", and do NOT include a URL. End the article on the
+   reframe.
 
    The artifact may be a worksheet, a checklist, a log, a sheet, a
    protocol, or a journal. Anything specific the reader can hold.
    Do NOT offer a generic thing (a guide, tips, more content).
 
-   Hard rules:
-     - It MUST name a specific discipline artifact.
-     - It MUST end with https://signaliq.com and no trailing
-       punctuation after it.
-     - It MUST NOT mention: free tier, subscription, upgrade,
-       pricing, delisted names, market data, backtests, datasets,
-       samples, or “your current source”.
-   If your CTA mentions any of those, rewrite it before returning.
+   The article ends on the reframe. No CTA, no artifact offer,
+   no URL, no "email me".
 
 Rules:
 
@@ -629,7 +621,7 @@ _VERIFIER_CHECKS = (
     "offer ('a free guide', 'more tips', 'our newsletter') is a "
     "failure. A market-data offer ('a backtest', 'a dataset', 'a "
     "sample', 'a fill-realism spreadsheet') is a failure. The sentence "
-    "must end with https://signaliq.com and no trailing punctuation.",
+    "must end on the reframe: no CTA, no artifact offer, no URL.",
 
     "INSTRUMENT: the cited trade's instrument must appear in the "
     "article at least once as a standalone token.",
