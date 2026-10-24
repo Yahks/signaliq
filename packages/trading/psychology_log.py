@@ -46,13 +46,23 @@ _FUTURES_SYMBOLS = {
 }
 
 
-def unit_word(instrument: str | None) -> str:
-    """'contracts' for a future, 'shares' for a stock."""
+def kind(instrument: str | None) -> str:
+    """"future" or "stock" — the one classification the rest
+    derives from: unit word, point value, and which arithmetic path
+    a row takes."""
     return (
-        "contracts"
+        "future"
         if (instrument or "").strip().upper() in _FUTURES_SYMBOLS
-        else "shares"
+        else "stock"
     )
+
+
+def unit_word(instrument: str | None) -> str:
+    return "contracts" if kind(instrument) == "future" else "shares"
+
+
+def point_value(instrument: str | None) -> int:
+    return _POINT_VALUE.get((instrument or "").strip().upper(), 1)
 
 
 _MIN_BARS_FOR_CHART = 30
@@ -549,7 +559,37 @@ async def read_next_unused(
         )
         await generate_psychology_batch(session, org_id=org_id, coord=coord)
 
-    row = (await session.execute(sql_text("""
+    # Alternate the instrument class against the last article: a
+    # future after a stock, a stock after a future. Each class then
+    # takes its own arithmetic path (point value 50-125000 for
+    # futures, 1 for stocks) and its own unit word, so neither can be
+    # scored with the other's formula. Falls back to any unused row
+    # when the wanted class is empty, so the pool can't stall.
+    _last = (await session.execute(sql_text("""
+        SELECT source_payload->'latest_trade'->>'instrument' AS inst
+        FROM trading_posts
+        WHERE org_id = :oid AND deleted_at IS NULL
+          AND subblock_id = (
+              SELECT id FROM trading_subblocks WHERE slug = 'trading_psychology'
+          )
+        ORDER BY created_at DESC
+        LIMIT 1
+    """), {"oid": org_id})).first()
+
+    _want: str | None = None
+    if _last and _last[0]:
+        _want = "stock" if kind(_last[0]) == "future" else "future"
+
+    _kind_clause = ""
+    _params: dict = {"oid": org_id, "coord": coord}
+    if _want == "future":
+        _kind_clause = "AND upper(instrument) = ANY(:futures)"
+        _params["futures"] = sorted(_FUTURES_SYMBOLS)
+    elif _want == "stock":
+        _kind_clause = "AND NOT (upper(instrument) = ANY(:futures))"
+        _params["futures"] = sorted(_FUTURES_SYMBOLS)
+
+    row = (await session.execute(sql_text(f"""
         SELECT id, narrative, reading_key,
                traded_at, instrument, direction, contracts,
                entry, stop, target, exit,
@@ -559,9 +599,26 @@ async def read_next_unused(
           AND coord = :coord
           AND deleted_at IS NULL
           AND used_in_article_id IS NULL
+          {_kind_clause}
         ORDER BY traded_at ASC
         LIMIT 1
-    """), {"oid": org_id, "coord": coord})).mappings().first()
+    """), _params)).mappings().first()
+
+    # Wanted class empty? Fall back to any unused row.
+    if not row and _kind_clause:
+        row = (await session.execute(sql_text("""
+            SELECT id, narrative, reading_key,
+                   traded_at, instrument, direction, contracts,
+                   entry, stop, target, exit,
+                   exit_reason, result, hold_time
+            FROM psychology_trade_log
+            WHERE org_id = :oid
+              AND coord = :coord
+              AND deleted_at IS NULL
+              AND used_in_article_id IS NULL
+            ORDER BY traded_at ASC
+            LIMIT 1
+        """), {"oid": org_id, "coord": coord})).mappings().first()
 
     if not row:
         return None
