@@ -40,12 +40,15 @@ async def get_market_conditions(
     # rotate deterministically. If the count can't be read
     # (no subblock row), fall back to 0 (most recent).
     try:
+        # Rotate on ATTEMPTS, not on persisted posts. Counting
+        # persisted posts meant a failed run (rejection, duplicate,
+        # length) left the counter unchanged, so the next run picked
+        # the same snapshot, the same prompt, and the same article —
+        # a permanent loop. ai_calls gains a row on every attempt.
         cnt_row = (await session.execute(sql_text("""
-            SELECT COUNT(*) FROM trading_posts p
-            JOIN trading_subblocks s ON s.id = p.subblock_id
-            WHERE p.org_id = :oid
-              AND s.slug = 'market_analysis'
-              AND p.deleted_at IS NULL
+            SELECT COUNT(*) FROM ai_calls
+            WHERE org_id = :oid
+              AND purpose = 'trading.market_condition'
         """), {"oid": org_id})).first()
         article_count = int(cnt_row[0] or 0) if cnt_row else 0
     except Exception:
