@@ -80,6 +80,8 @@ Read it. Write about the gap.
 
 {reconciliation_block}
 
+{charts_block}
+
 **Research block (the only sources you may cite):**
 
 {research_block_text}
@@ -180,6 +182,13 @@ FIVE are marked REFERENCE.
         violation that wins is the most dangerous kind, because it
         reinforces the behaviour. Say it explicitly.
     (g) the sample period (sample_period in the block).
+    (h) THE CHART TAG. The diagnostics bullet that describes the
+        cited trade must END with the literal token [CHART:daily]
+        on its own line. In that same bullet, state the entry, the
+        stop, the exit, and what the price did between them — the
+        chart shows exactly that. Write the token exactly as
+        [CHART:daily], brackets and colon included. An article
+        without it fails validation.
 
   MECHANISM -> FIX MAPPING. Each fix must name the mechanism it
   addresses, not just the rule it enforces:
@@ -941,10 +950,28 @@ async def generate(
         f"{'POSITIVE — the finding is the per-trade gap, not a loss' if (_r.get('violation_net') or 0) >= 0 else 'NEGATIVE'}"
         if _r else "  (no reconciliation available)"
     )
+    try:
+        from packages.trading.psychology_charts import (
+            build_psychology_charts_block as _bpc,
+        )
+        _lt0 = latest_trade or {}
+        charts_block = await _bpc(
+            session, org_id=org_id,
+            symbol=(_lt0.get("instrument") or "").strip().strip("'\""),
+            entry=_lt0.get("entry"), stop=_lt0.get("stop"),
+            exit_price=_lt0.get("exit"),
+            traded_at=_lt0.get("traded_at"),
+        )
+    except Exception as _ce:
+        log.warning("trading_psychology.charts_block_failed",
+                    error=str(_ce)[:160])
+        charts_block = ""
+
     user_prompt = PROMPT_TEMPLATE_LOG.format(
         process_block=process_block,
         batch_block=behaviour_block,
         reconciliation_block=reconciliation_block,
+        charts_block=charts_block,
         research_block_text=research_block_text,
         mechanism_claim=MECHANISM_CLAIM,
     )
@@ -1046,11 +1073,21 @@ async def generate(
                 exit_time=_lt.get("exit_time"),
             )
         if _candle_url:
-            post.body = post.body.rstrip() + (
-                f"\n\n![{_sym or 'trade'} 1d candles]({_candle_url})\n"
-            )
+            import re as _re
+            _img = f"\n\n![{_sym or 'trade'} 1d candles]({_candle_url})\n\n"
+            _new, _n = _re.subn(r"\[CHART:\s*daily\s*\]", _img,
+                               post.body, flags=_re.IGNORECASE)
+            if _n:
+                post.body = _new
+            else:
+                # The model omitted the tag. Append so the chart is
+                # never lost, and log it — the prompt requirement
+                # failed and the article should be inspected.
+                post.body = post.body.rstrip() + _img
+                log.warning("trading_psychology.chart_tag_missing",
+                            symbol=_sym)
             log.info("trading_psychology.candle_inserted",
-                     symbol=_sym, url=_candle_url)
+                     symbol=_sym, url=_candle_url, replaced=_n)
     except Exception as _ce:
         log.warning("trading_psychology.candle_failed",
                     error=str(_ce)[:200])

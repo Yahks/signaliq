@@ -131,6 +131,13 @@ def validate_psychology(
             f"entry so the article refers to the charted trade"
         )
 
+    # the chart tag must have been placed and substituted
+    if "[CHART:" in (body or ""):
+        reasons.append(
+            "chart tag [CHART:daily] was not substituted — the chart "
+            "placement failed"
+        )
+
     # ── 3. backstops ──
     if re.search(r"https?://(?!signaliq\.com/static)", body):
         reasons.append("article contains a URL")
