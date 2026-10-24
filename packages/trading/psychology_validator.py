@@ -31,10 +31,22 @@ def _fmt_money(v: float) -> list[str]:
 
 
 def _present(body: str, v: float, *, signed: bool = False) -> bool:
-    b = body.replace("$", "").replace("\u202f", " ").replace(",", "")
+    """True if the figure appears, tolerant of separators and signs.
+
+    The model writes "+38 666.00" with U+202F as the thousands
+    separator and U+2013 as the minus. Normalise the body AND the
+    candidate the same way: strip every separator (comma, space,
+    narrow space, U+2010-2015) and compare the digits and the sign.
+    """
+    import re as _re
+    def _norm(s: str) -> str:
+        s = (s or "")
+        s = _re.sub(r"[,\s\u202f\u00a0]", "", s)      # separators
+        s = _re.sub(r"[\u2010-\u2015]", "-", s)       # dashes -> '-'
+        return s
+    b = _norm(body.replace("$", ""))
     for cand in _fmt_money(v):
-        c = cand.replace(",", "")
-        if c in b:
+        if _norm(cand) in b:
             return True
     return False
 
