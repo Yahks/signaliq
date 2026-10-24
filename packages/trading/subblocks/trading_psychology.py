@@ -385,10 +385,16 @@ async def fetch_trader_state(
         "violation_wins_net": round(_net(_viol_w), 2),
         "violation_losses_n": len(_viol_l),
         "violation_losses_net": round(_net(_viol_l), 2),
-        "sample_start": str(all_rows[0].get("traded_at") or "")[:10]
-        if all_rows else None,
-        "sample_end": str(sorted_rows[0].get("traded_at") or "")[:10]
-        if sorted_rows else None,
+        # read_all_for_coord orders newest-first, so the period must
+        # be taken from the extremes, not the list ends.
+        "sample_start": (
+            str(min((r["traded_at"] for r in all_rows
+                     if r.get("traded_at")), default=""))[:10] or None
+        ),
+        "sample_end": (
+            str(max((r["traded_at"] for r in all_rows
+                     if r.get("traded_at")), default=""))[:10] or None
+        ),
     }
 
     # ── Behaviour block: one line per row, pipe-separated ──────────
