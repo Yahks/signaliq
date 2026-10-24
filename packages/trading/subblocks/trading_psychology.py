@@ -68,6 +68,10 @@ Read it. Write about the gap.
 
 {batch_block}
 
+**Reconciliation across the full log (computed — quote exactly):**
+
+{reconciliation_block}
+
 **Research block (the only sources you may cite):**
 
 {research_block_text}
@@ -148,6 +152,20 @@ FIVE are marked REFERENCE.
 
 - All COUNTS (win rate, consecutive losses, hold-time averages)
   come from all six rows. Do not invent a count.
+
+- THE RECONCILIATION. The block above splits the full log into
+  compliant and rule-violating trades. Your FIXES or WHAT-THIS-
+  MEANS paragraph MUST state, as figures:
+    (a) compliant: n, net dollars, average per trade;
+    (b) violation: n, net dollars, average per trade;
+    (c) the per-trade gap;
+    (d) the violation rate as a percentage;
+    (e) whether the violations were net positive or net negative,
+        stated as computed. If violations were net positive, say
+        the finding is the per-trade gap, not a loss.
+  Quote the figures exactly. Do not recompute them from the six
+  rows. Do not describe a violation as "costly" if its net is
+  positive — say the gap instead.
 
 - Do NOT invent a trade that is not one of the six rows above.
 
@@ -424,6 +442,18 @@ async def fetch_trader_state(
         k = str(r.get("reading_key") or "unknown")
         reading_keys[k] = reading_keys.get(k, 0) + 1
 
+    # Compliance split across the full log — the reviewer's #1 gap:
+    # incidents listed without a compliant-vs-violation comparison.
+    from ..psychology_skeleton import _classify as _psy_classify
+
+    _comp = [r for r in all_rows
+             if _psy_classify(r.get("reading_key")) == "compliant"]
+    _viol = [r for r in all_rows
+             if _psy_classify(r.get("reading_key")) == "violation"]
+
+    def _net(rows): return sum(float(r["result"] or 0) for r in rows)
+    def _avg(rows): return (_net(rows) / len(rows)) if rows else 0.0
+
     readings = {
         "recent_win_rate": round(len(wins) / len(results), 3) if results else None,
         "consecutive_losses": consecutive_losses,
@@ -434,6 +464,17 @@ async def fetch_trader_state(
         ),
         "reading_key_counts": reading_keys,
         "account_trade_count": len(all_rows),
+        "compliant_n": len(_comp),
+        "compliant_net": round(_net(_comp), 2),
+        "compliant_avg": round(_avg(_comp), 2),
+        "violation_n": len(_viol),
+        "violation_net": round(_net(_viol), 2),
+        "violation_avg": round(_avg(_viol), 2),
+        "per_trade_gap": round(_avg(_comp) - _avg(_viol), 2),
+        "violation_rate_pct": (
+            round(len(_viol) / (len(_comp) + len(_viol)) * 100.0, 1)
+            if (_comp or _viol) else None
+        ),
     }
 
     # ── Behaviour block: one line per row, pipe-separated ──────────
@@ -831,9 +872,24 @@ async def generate(
 
 
 
+    _r = readings or {}
+    reconciliation_block = (
+        f"  compliant:  n={_r.get('compliant_n')}, "
+        f"net ${_r.get('compliant_net'):+,.2f}, "
+        f"avg ${_r.get('compliant_avg'):+,.2f}/trade\n"
+        f"  violation:  n={_r.get('violation_n')}, "
+        f"net ${_r.get('violation_net'):+,.2f}, "
+        f"avg ${_r.get('violation_avg'):+,.2f}/trade\n"
+        f"  per_trade_gap: ${_r.get('per_trade_gap'):+,.2f}\n"
+        f"  violation_rate: {_r.get('violation_rate_pct')}%\n"
+        f"  violations_net: "
+        f"{'POSITIVE — the finding is the per-trade gap, not a loss' if (_r.get('violation_net') or 0) >= 0 else 'NEGATIVE'}"
+        if _r else "  (no reconciliation available)"
+    )
     user_prompt = PROMPT_TEMPLATE_LOG.format(
         process_block=process_block,
         batch_block=behaviour_block,
+        reconciliation_block=reconciliation_block,
         research_block_text=research_block_text,
         mechanism_claim=MECHANISM_CLAIM,
     )
