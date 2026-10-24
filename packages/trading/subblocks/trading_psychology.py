@@ -279,29 +279,13 @@ FIVE are marked REFERENCE.
      - "The gap between the impulse and the click is the whole
         game."
    NOT a restatement of the mechanism. NOT a platitude. Before
-   the checklist.
+   This is the last sentence of the article.
 
-8. CHECKLIST — five questions woven into prose, starting with
-   'Can I' or 'Do I' or 'Have I'. Each question is about the trader's
-   own state, not about the market.
+The article ENDS on the reframe. There is NO checklist beat and
+NO CTA beat: no five-question list, no 'Can I'/'Do I'/'Have I'
+run, no discipline-artifact offer, no 'email me', no URL. The
+reframe is the last sentence.
 
-9. CTA — one sentence. YOU write it. There is no verbatim string.
-
-   The CTA must offer the reader a DISCIPLINE artifact — a specific
-   thing they could receive, named in the article's own words. The
-   artifact must fit THIS article's theme: if the article diagnosed
-   post-loss re-entry, the artifact is a cooldown protocol; if it
-   diagnosed size creep, the artifact is a sizing sheet; if it
-   diagnosed a broken rule, the artifact is a rule-audit worksheet.
-   Read your own article and name the artifact it earned.
-
-   There is NO CTA. Do NOT offer an artifact, do NOT say
-   "email me", and do NOT include a URL. End the article on the
-   reframe.
-
-   The artifact may be a worksheet, a checklist, a log, a sheet, a
-   protocol, or a journal. Anything specific the reader can hold.
-   Do NOT offer a generic thing (a guide, tips, more content).
 
    The article ends on the reframe. No CTA, no artifact offer,
    no URL, no "email me".
@@ -364,7 +348,7 @@ Rules:
        causal chain, more detail to the changes you made. Do
        NOT add more diagnostics bullets — the count is fixed at
        FIVE. Do NOT add more citations than the four biases. Do
-       NOT pad the HOOK or the CTA. Then count again.
+       NOT pad the HOOK or the REFRAME. Then count again.
     3. If the count is still under 770, repeat step 2.
     4. Only return when the count is 770 or more.
 - Do NOT pad the HOOK or the REFRAME. Length comes from MECHANISM,
@@ -645,7 +629,7 @@ async def fetch_trader_state(
 #   2. The reading keys from the batch appear in the diagnostics.
 #   3. Every generalisation names a source from the research block.
 #   4. Voice is first person — no "the trader", no "you".
-#   5. The CTA names a discipline artifact and ends with the URL.
+#   5. The article ends on the reframe — no CTA, no URL.
 #   6. The cited trade's instrument appears in the body as a token.
 #   7. The article is at least 600 words.
 #
