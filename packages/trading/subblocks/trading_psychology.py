@@ -551,6 +551,14 @@ async def fetch_trader_state(
         "exit": (
             float(cited["exit"]) if cited.get("exit") is not None else None
         ),
+        "stop": (
+            float(cited["stop"]) if cited.get("stop") is not None else None
+        ),
+        "target": (
+            float(cited["target"]) if cited.get("target") is not None else None
+        ),
+        "entry_time": cited.get("entry_time"),
+        "exit_time": cited.get("exit_time"),
         "result": (
             float(cited["result"]) if cited.get("result") is not None else None
         ),
@@ -610,21 +618,22 @@ _VERIFIER_CHECKS = (
     "occurrence of \"the trader\", \"the desk\", or second-person "
     "address (\"you\", \"your\") except inside a quoted source.",
 
-    "CTA: the final sentence must offer a discipline artifact — a "
-    "specific thing the reader could receive, named in the article's "
-    "own words. The artifact must FIT the article's theme: a post-loss "
-    "article offers a cooldown protocol; a sizing article offers a "
-    "sizing sheet; a broken-rule article offers a rule-audit worksheet; "
-    "a hold-time article offers a hold-time log. The artifact may be "
-    "a worksheet, a checklist, a log, a sheet, a protocol, or a "
-    "journal — the name is the model's, not a fixed list. A generic "
-    "offer ('a free guide', 'more tips', 'our newsletter') is a "
-    "failure. A market-data offer ('a backtest', 'a dataset', 'a "
-    "sample', 'a fill-realism spreadsheet') is a failure. The sentence "
-    "must end on the reframe: no CTA, no artifact offer, no URL.",
+    "ENDING: the article must END on the reframe — a single "
+    "standalone sentence that shifts the reader's thinking. There is "
+    "NO CTA and NO discipline-artifact offer for this register: no "
+    "'email me', no worksheet/sheet/log/protocol offer, no URL. If "
+    "the article ends with an offer of any kind, or with a URL, it "
+    "fails.",
 
     "INSTRUMENT: the cited trade's instrument must appear in the "
     "article at least once as a standalone token.",
+
+    "RECONCILIATION: the article must state, as figures, the "
+    "compliant count, the compliant net dollars, the violation count, "
+    "the violation net dollars, the per-trade gap, and the violation "
+    "rate. These are supplied in the RECONCILIATION block. A prose "
+    "gesture ('a narrower gap', 'violations cost more') without the "
+    "figures fails.",
 
     "LENGTH: the article must be at least 500 words. Use the "
     "word count passed in the prompt; do not recount.",
@@ -941,6 +950,51 @@ async def generate(
         post.unsupported_claims = _existing + [
             f"__content__: {p}" for p in _problems
         ]
+
+    # Candlestick chart for the cited trade's instrument. Appended
+    # after the reframe — there is no table and no CTA in this
+    # register, so the chart is the final element.
+    try:
+        from packages.trading.charts.article_charts import (
+            render_trade_candlestick,
+        )
+        _lt = latest_trade or {}
+        _candle_url = await render_trade_candlestick(
+            session,
+            org_id=org_id,
+            symbol=_lt.get("instrument") or "",
+            timeframe="1d",
+            entry=_lt.get("entry"),
+            stop=_lt.get("stop"),
+            target=_lt.get("target"),
+            exit_price=_lt.get("exit"),
+            entry_time=_lt.get("entry_time"),
+            exit_time=_lt.get("exit_time"),
+        )
+        if _candle_url:
+            post.body = post.body.rstrip() + (
+                f"\n\n![{_lt.get('instrument') or 'trade'} 1d "
+                f"candles]({_candle_url})\n"
+            )
+            log.info("trading_psychology.candle_inserted",
+                     symbol=_lt.get("instrument"), url=_candle_url)
+    except Exception as _ce:
+        log.warning("trading_psychology.candle_failed",
+                    error=str(_ce)[:200])
+
+    # Deterministic reconciliation check. Fail-closed: a missing
+    # figure drafts the article.
+    from packages.trading.psychology_validator import (
+        validate_psychology as _val_psy,
+    )
+    _psy_reasons = _val_psy(post.body, readings, latest_trade)
+    if _psy_reasons:
+        log.warning("trading_psychology.validator_rejected",
+                    reasons=_psy_reasons)
+        post.verification_ok = False
+        post.unsupported_claims = list(
+            getattr(post, "unsupported_claims", None) or []
+        ) + _psy_reasons
 
     post_id = await persist_post(
         session,
