@@ -27,6 +27,7 @@ from ..psychology_log import (
     read_all_for_coord,
     read_next_unused,
     mark_used,
+    unit_word,
 )
 
 log = get_logger(__name__)
@@ -182,8 +183,10 @@ Rules:
   blotter. Quote the trader's own process back to them.
 - The CONTENT trade (from the BATCH block, marked CONTENT) is the
   only trade you may describe WITH NUMBERS. Its date, instrument,
-  contracts, result, hold time, and exit reason are the numbers
-  you may cite exactly as written.
+  quantity, result, hold time, and exit reason are the numbers
+  you may cite exactly as written. Call the quantity "shares"
+  for a stock and "contracts" for a futures contract — the
+  LATEST TRADE block says which.
 - In the FIRST sentence of the article, write the CONTENT trade's
   ticker in parentheses immediately after the prose name. Example:
   "the e-mini S&P (ES)", "the gold contract (GC)", "the Treasury
@@ -244,8 +247,10 @@ Rules:
   an instrument that is not in the LATEST TRADE block above.
   Every number you write about a trade must appear in the
   LATEST TRADE block, unchanged.
-- The article MUST name the cited trade's instrument, contracts,
-  result, and hold time, EACH at least once, inside the body.
+- The article MUST name the cited trade's instrument, its
+  quantity, result, and hold time, EACH at least once, inside
+  the body. Use "shares" for a stock and "contracts" for a
+  futures contract.
   Quote them exactly as they appear in the LATEST TRADE block.
 - THE CHART. A price chart of the cited trade's instrument is
   appended after the article. Refer to it once, in the diagnostics
@@ -424,7 +429,8 @@ async def fetch_trader_state(
             f"  traded_at:     {str(r.get('traded_at') or '')[:10]}",
             f"  instrument:    {r.get('instrument') or '?'}",
             f"  direction:     {r.get('direction') or '?'}",
-            f"  contracts:     {r.get('contracts') or '?'}",
+            f"  {unit_word(r.get('instrument'))}:     "
+            f"{r.get('contracts') or '?'}",
             f"  entry:         {_entry}",
             f"  exit:          {_exit}",
             f"  result:        {_res}",
@@ -550,15 +556,17 @@ _VERIFIER_CHECKS = (
     "address (\"you\", \"your\") except inside a quoted source.",
 
     "ENDING: the article must END on the reframe — a closing "
-    "paragraph of three to four sentences of plain prose that "
-    "explains what the diagnostics revealed: what the trader "
-    "believed, why it was wrong, and what is true instead. It is an "
-    "explanation, not a slogan, and not a single sentence. There is "
-    "NO CTA, NO discipline-artifact offer, NO URL, and NO checklist "
-    "for this register. A checklist is any run of questions in the "
-    "reader's voice — 'Do I…?', 'Can I…?', 'Have I…?', 'Did I…?' — "
-    "whether at the end or in the body. If the article contains such "
-    "a run, or ends with an offer or a URL or a question, it fails.",
+    "paragraph of plain prose that explains what the diagnostics "
+    "revealed: what the trader believed, why it was wrong, and what "
+    "is true instead. It is an explanation, not a slogan. Do NOT "
+    "impose a sentence count — the paragraph is as long as the "
+    "explanation needs. A single sentence is a slogan and fails. "
+    "There is NO CTA, NO discipline-artifact offer, NO URL, and NO "
+    "checklist for this register. A checklist is any run of questions "
+    "in the reader's voice — 'Do I…?', 'Can I…?', 'Have I…?', "
+    "'Did I…?' — whether at the end or in the body. If the article "
+    "contains such a run, or ends with an offer or a URL or a "
+    "question, it fails.",
 
     "INSTRUMENT: the cited trade's instrument must appear in the "
     "article at least once as a standalone token.",
@@ -595,7 +603,7 @@ LATEST TRADE:
 - Date:        {traded_at}
 - Instrument:  {instrument}
 - Direction:   {direction}
-- Contracts:   {contracts}
+- {quantity_label}:   {contracts}
 - Result:      {result}
 - Hold:        {hold_time}
 - Exit:        {exit_reason}
@@ -652,6 +660,10 @@ async def verify_article_content(
         instrument=lt.get("instrument") or "?",
         direction=lt.get("direction") or "?",
         contracts=lt.get("contracts") or "?",
+        quantity_label=(
+            "Contracts" if unit_word(lt.get("instrument")) == "contracts"
+            else "Shares"
+        ),
         result=f"{(lt.get('result') or 0):+.2f}",
         hold_time=lt.get("hold_time") or "?",
         exit_reason=lt.get("exit_reason") or "?",
@@ -794,7 +806,8 @@ async def generate(
             f"- Date:        {_lt['traded_at']}\n"
             f"- Instrument:  {_lt['instrument']}\n"
             f"- Direction:   {_lt['direction']}\n"
-            f"- Contracts:   {_lt['contracts']}\n"
+            f"- {'Contracts' if unit_word(_lt.get('instrument')) == 'contracts' else 'Shares'}:"
+            f"   {_lt['contracts']}\n"
             f"- Result:      {(_lt['result'] or 0):+.2f}\n"
             f"- Hold:        {_lt['hold_time']}\n"
             f"- Exit:        {_lt['exit_reason']}\n"

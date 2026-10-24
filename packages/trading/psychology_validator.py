@@ -127,6 +127,25 @@ def _check_reframe_paragraph(body: str) -> list[str]:
     return []
 
 
+def _check_unit_word(body: str, latest_trade: dict | None) -> list[str]:
+    """A stock is described in shares, a future in contracts."""
+    if not latest_trade:
+        return []
+    from packages.trading.psychology_log import unit_word
+    inst = latest_trade.get("instrument")
+    want = unit_word(inst)
+    wrong = "contracts" if want == "shares" else "shares"
+    import re as _re
+    m = _re.search(rf"\b\d[\d,]*\s+{wrong}\b", body or "",
+                   _re.IGNORECASE)
+    if m:
+        return [
+            f"cited trade {inst} uses '{want}', but the article says "
+            f"'{m.group(0)}'"
+        ]
+    return []
+
+
 def validate_psychology(
     body: str,
     readings: dict[str, Any],
@@ -229,6 +248,7 @@ def validate_psychology(
 
     reasons.extend(_check_reframe_not_boilerplate(body))
     reasons.extend(_check_reframe_paragraph(body))
+    reasons.extend(_check_unit_word(body, latest_trade))
 
     # ── 3. backstops ──
     if re.search(r"https?://(?!signaliq\.com/static)", body):

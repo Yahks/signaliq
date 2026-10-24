@@ -36,7 +36,57 @@ from packages.core.logging import get_logger
 log = get_logger(__name__)
 
 
+# Fallback if the instrument query fails. The live list is read
+# from market_history — any symbol with enough daily bars for the
+# article's chart, so the generator picks chartable names.
 INSTRUMENTS = ("ES", "CL", "GC", "6E", "ZB", "MNQ")
+
+_FUTURES_SYMBOLS = {
+    "ES", "MES", "CL", "MCL", "GC", "ZB", "6E", "MNQ", "NQ",
+}
+
+
+def unit_word(instrument: str | None) -> str:
+    """'contracts' for a future, 'shares' for a stock."""
+    return (
+        "contracts"
+        if (instrument or "").strip().upper() in _FUTURES_SYMBOLS
+        else "shares"
+    )
+
+
+_MIN_BARS_FOR_CHART = 30
+
+
+async def _chartable_instruments(
+    session: AsyncSession, *, org_id: str, limit: int = 60,
+) -> list[str]:
+    """Symbols with enough daily bars for the chart, plus the six
+    futures. Equities are the majority; the futures are always
+    included because the trader's own log is futures-heavy.
+    """
+    try:
+        rows = (await session.execute(sql_text("""
+            SELECT symbol, count(*) AS n
+            FROM market_history
+            WHERE org_id = :oid AND deleted_at IS NULL
+              AND timeframe = '1d'
+            GROUP BY symbol
+            HAVING count(*) >= :minbars
+            ORDER BY count(*) DESC, symbol
+            LIMIT :lim
+        """), {
+            "oid": org_id, "minbars": _MIN_BARS_FOR_CHART,
+            "lim": limit,
+        })).all()
+        syms = [r[0] for r in rows if r[0]]
+    except Exception:
+        syms = []
+    out = list(INSTRUMENTS)
+    for s in syms:
+        if s not in out:
+            out.append(s)
+    return out
 
 HOLIDAYS_2026 = {
     "2026-01-01",  # New Year's Day
@@ -189,11 +239,18 @@ Behaviour shape (from the trader's real log):
 Constraints:
 
 - Instruments: one of {instruments} per trade. Do NOT use NQ.
+  MOST of these are stocks. A psychology log reflects the trader's
+  whole book, not only futures: use a stock for most trades, and a
+  futures contract only when the narrative needs one.
 - Dates: exactly these {n} weekdays. Use each once.
 {dates}
 
 - Direction: long or short.
-- Contracts: integer 1-6.
+- Quantity: for a futures contract (ES, CL, GC, ZB, 6E, MNQ, NQ,
+  MES, MCL) use an integer 1-6, and the field is called "contracts".
+  For a stock, use 100-2000 shares — a share count that puts the
+  result in the same range as a futures trade — and the field is
+  still named "contracts" but the article describes it as shares.
 - Entry/stop/target/exit: plausible for the instrument.
 - Stop side: for a LONG the stop is BELOW the entry; for a SHORT
   the stop is ABOVE the entry. A short with a stop below entry is
@@ -205,9 +262,13 @@ Constraints:
     short: (entry - exit) * contracts * point_value
   rounded to dollars. Point values: ES $50, CL $1000, GC $100,
   ZB $1000, 6E $125000, MNQ $2.
-  Example: a 1-contract CL short from 80.00 stopped at 80.50 loses
-  (80.00 - 80.50) * 1 * 1000 = -$500. A 2-contract ES long from
-  5840.00 to 5852.00 gains (5852 - 5840) * 2 * 50 = +$1,200.
+  Examples:
+    A 1-contract CL short from 80.00 stopped at 80.50 loses
+      (80.00 - 80.50) * 1 * 1000 = -$500.
+    A 500-share AAPL long from 210.00 stopped at 208.00 loses
+      (208.00 - 210.00) * 500 * 1 = -$1,000.
+  For a stock the quantity is the share count and the point value
+  is 1.
 - hold_time: a string like "45m" or "2h 10m". Match the shape.
 - exit_reason: one of the exit reasons above.
 - reading_key: a short slug naming the behaviour this trade
@@ -221,17 +282,17 @@ Return JSON, no prose, exactly this shape:
   "trades": [
     {{
       "traded_at": "YYYY-MM-DDT14:30:00Z",
-      "instrument": "ES",
+      "instrument": "AAPL",
       "direction": "long",
-      "contracts": 2,
-      "entry": 5840.00,
-      "stop": 5830.00,
-      "target": 5860.00,
-      "exit": 5852.00,
-      "exit_reason": "target hit",
-      "result": 1200.00,
-      "hold_time": "45m",
-      "reading_key": "followed_rule",
+      "contracts": 500,
+      "entry": 210.00,
+      "stop": 208.00,
+      "target": 216.00,
+      "exit": 208.00,
+      "exit_reason": "stop hit",
+      "result": -1000.00,
+      "hold_time": "30m",
+      "reading_key": "broke_rule",
       "narrative": "..."
     }}
   ]
@@ -258,7 +319,9 @@ async def _call_model_for_batch(
         exits=", ".join(shape["exit_reasons"]),
         win=int(shape["typical_result_win"]),
         loss=int(shape["typical_result_loss"]),
-        instruments=", ".join(INSTRUMENTS),
+        instruments=", ".join(
+            await _chartable_instruments(session, org_id=org_id)
+        ),
         dates="\n".join(f"  - {d}" for d in dates),
     )
 
