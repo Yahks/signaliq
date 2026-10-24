@@ -626,12 +626,14 @@ _VERIFIER_CHECKS = (
     "occurrence of \"the trader\", \"the desk\", or second-person "
     "address (\"you\", \"your\") except inside a quoted source.",
 
-    "ENDING: the article must END on the reframe — a single "
-    "standalone sentence that shifts the reader's thinking. There is "
-    "NO CTA and NO discipline-artifact offer for this register: no "
-    "'email me', no worksheet/sheet/log/protocol offer, no URL. If "
-    "the article ends with an offer of any kind, or with a URL, it "
-    "fails.",
+    "ENDING: the article must END on the reframe — one standalone "
+    "DECLARATIVE sentence that shifts the reader's thinking. There is "
+    "NO CTA, NO discipline-artifact offer, NO URL, and NO checklist "
+    "for this register. A checklist is any run of questions in the "
+    "reader's voice — 'Do I…?', 'Can I…?', 'Have I…?', 'Did I…?' — "
+    "whether at the end or in the body. If the article contains such "
+    "a run, or ends with an offer or a URL or a question, it fails. "
+    "The final sentence must not end in a question mark.",
 
     "INSTRUMENT: the cited trade's instrument must appear in the "
     "article at least once as a standalone token.",
