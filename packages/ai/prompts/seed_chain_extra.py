@@ -95,6 +95,23 @@ A claim is SUPPORTED if:
   - The absence of a metric-source paragraph is not a claim.
     The payload carries no metric source; the article is
     correct to omit it. Do NOT flag the omission.
+  - Every number in the source block's distribution_block
+    field is SUPPORTED. That field contains the strategy name,
+    the rule text, the sample size, the win rate, the average
+    win, the average loss, the payoff ratio, the expectancy
+    per trade, the net P&L, five recent trades, and the biggest
+    win and biggest loss. Do NOT flag a claim that matches any
+    number in that field.
+  - Restating the strategy rule from the distribution_block
+    is a process statement, not a market claim. If the article
+    says "the close is below the lowest close of the prior ten
+    bars", that is a rule restatement and is SUPPORTED.
+  - A claim about what a FIX WOULD DO is not the same as a
+    claim about what a fix DID. If the article says "the fix
+    would reduce losses if it works", that is SUPPORTED. If the
+    article says "the fix reduced losses" or "the win rate
+    rose", the source data must show the post-fix numbers.
+    Flag only the second kind.
 
 MECHANISM SENTENCES — DO NOT FLAG.
 

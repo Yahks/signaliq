@@ -1,8 +1,9 @@
-"""investment_strategies: which strategies and how they interact.
+"""investment_strategies: a distribution review of one strategy.
 
-Reads multi_strategy_blend from the trader's process. Picks the
-next unused coordinate from D7 × the subblock's angles. Writes
-the piece in the practitioner-process register.
+Picks a strategy (long_breakout or short_breakdown), computes the
+full distribution from trade_log, and writes a review. Every
+number in the article comes from the distribution block, not the
+model's imagination.
 """
 from __future__ import annotations
 
@@ -13,56 +14,100 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
 
-from ..ctas import pick_cta
 from ..editorial import compose_system_prompt
-from ..registry import pick_coordinate, covered_dimensions
 from ..registers._selector import pick_register
-from ..trader_process import get_process_excerpt
 from .base import call_llm_json_verified, persist_post
+from .investment_strategies_distribution import (
+    pick_strategy,
+    build_distribution_block,
+)
 
 log = get_logger(__name__)
 
 
-PROMPT_TEMPLATE = """Coordinate: {dimension_label} / {angle_label}
+PROMPT_TEMPLATE = """You are writing a strategy review for a systematic trader.
 
-Framing: {angle_framing}
+You have a full distribution of trades of one strategy type. Your job
+is to write a review — the sample size, the win rate, the expectancy,
+the biggest win, the biggest loss, and what it tells you about the
+strategy's real edge.
 
-Your process document is below. The multi-strategy-blend section
-is the emphasis. Write about which strategies you run, why, and
-how they interact — a strategy's contribution is its return
-relative to the correlation with what else you run.
+VOICE & STYLE
+- Write in first person. ("I run", "I watched", "My sample")
+- Do NOT write "the trader". Write "I".
+- Do NOT write a portfolio essay. Do NOT write about "how I allocate
+  across strategies." Write about THIS ONE STRATEGY and the trades
+  in its sample.
 
---- BEGIN PROCESS DOCUMENT ---
-{process_excerpt}
---- END PROCESS DOCUMENT ---
+HARD RULES (the delivery check will fail if you break these)
+1. EVERY NUMBER MUST COME FROM THE SOURCE BLOCK. Do NOT invent a
+   win rate, an expectancy, a sample size, or a dollar amount.
+   If a number is not in the SOURCE BLOCK below, do not write it.
+2. DO NOT CHERRY-PICK. The article's core is the SAMPLE SIZE and
+   the MATH. The five recent trades and the outliers are
+   illustrations, not the evidence.
+3. YOU MUST STATE THE MATH. Explicitly write the win rate, the
+   average win, the average loss, the payoff ratio, and the
+   expectancy per trade. Show the arithmetic, not just the
+   conclusion.
+4. NO ENUMERATED LISTS. Strictly forbidden: "First", "Second",
+   "Third", "One", "Two", "Three", "Next", "Finally". Continuous
+   narrative prose.
+5. NO META-COMMENTARY. Do NOT write "In this article", "Let me
+   explain", "Here is what I learned", "Follow my blog", "If you
+   found this useful."
+6. NO CAUSAL LANGUAGE. Do NOT write "signaled", "suggested",
+   "indicated", "implied". State the number, state what happened.
+7. THE REFRAME. End the prose with ONE sentence that makes a
+   distinction. Form: 'X isn't Y, it's Z.' (e.g., "A breakout
+   isn't a prediction, it's a bet on continuation.")
 
-Write the piece in the register selected by the system prompt.
+BEAT SHAPE — nine beats, in order. Do NOT skip any.
 
-LENGTH. The article must be at least 650 words, aiming for 750.
-Under 550 words is a failure. Give each beat a budget:
+1. THE HOOK. The most recent trade of this type, in detail: symbol,
+   timeframe, entry, exit, result, timestamp.
 
-  Hook            60-90 words
-  Name the problem 30-50 words
-  Mechanism      100-150 words
-  Diagnostics     5 items, 40-60 words each
-  Fixes           5 items, 40-60 words each
-  Reframe         15-25 words
-  Checklist       60-90 words
-  CTA             30-50 words
+2. THE RULE. What setup fires. Entry condition, stop placement,
+   target. In exact terms, from the STRATEGY block.
 
-Every diagnostic cites a different trade, states the trade's
-facts (date, contracts, entry, result), and says what the
-trader noticed about it. Every fix has three parts: what the
-trader used to do, what they do now, and one sentence of
-arithmetic from the process document.
+3. THE SAMPLE. How many trades. Over what period. Do NOT say "I
+   won some and lost some." State the number. Name the instruments
+   the sample touches. Which symbols appear most often. Which
+   timeframes. Are there clusters — many trades from one sector,
+   many from one month, many from one symbol. Name them.
 
-Continuous prose. No headings, no bold labels, no bullets, no
-numbered lists — except the ONE diagnostics list, which uses
-'-' at the start of each item.
+4. THE MATH. Win rate, average win, average loss, payoff ratio,
+   expectancy. Show the arithmetic. e.g., "42.3% win rate times
+   an average win of $2,212 plus 57.7% loss rate times an average
+   loss of $1,483 gives an expectancy of +$80.75 per trade."
 
-End with this CTA, exactly:
+5. THE BEST AND THE WORST. The biggest win and the biggest loss
+   from the sample, in detail. What made them outliers.
 
-{cta_text}
+6. THE FAILURE MODE. When this strategy loses. What conditions.
+   What it can't detect. What the losing trades have in common.
+
+7. THE FIX. One concrete rule change. You may describe what the
+   fix WOULD do if it works. You may NOT claim that the fix has
+   already improved the win rate, the average loss, or the
+   expectancy — the source block contains no post-fix data.
+   End the beat with the honest admission that the fix is
+   unproven.
+
+8. THE REFRAME. One sentence, a distinction.
+
+9. THE CHECKLIST. Five questions you ask before the next trade of
+   this type. Specific to THIS strategy — reference the entry
+   condition, the stop, or the sample.
+
+Aim for 850 to 1230 words.
+
+SOURCE BLOCK:
+{source_block}
+
+End with the checklist. Do NOT write a CTA, a link, a product pitch,
+or an invitation to contact. The article ends with the last checklist
+question. Nothing after it.
 """
 
 
@@ -74,40 +119,28 @@ async def generate(
 ) -> dict[str, Any] | None:
     slug = subblock["slug"]
 
+    strategy = await pick_strategy(
+        session, org_id=org_id, subblock_id=subblock["id"],
+    )
+
+    distribution_block = await build_distribution_block(
+        session, org_id=org_id, strategy=strategy,
+    )
+    if not distribution_block:
+        log.warning("investment_strategies.no_distribution",
+                    slug=slug, strategy=strategy)
+        return {"status": "no_distribution", "slug": slug}
+
+    user_prompt = PROMPT_TEMPLATE.format(
+        source_block=distribution_block,
+    )
+
     tier_index = (await session.execute(sql_text("""
         SELECT COUNT(*) FROM trading_posts
         WHERE subblock_id = :sid AND deleted_at IS NULL
     """), {"sid": subblock["id"]})).scalar() or 0
-
     from ..registers import pick_tier, target_words_for
     tier = pick_tier(tier_index)
-
-    covered = await covered_dimensions(session, org_id)
-    if not covered:
-        log.warning("investment_strategies.no_process_covered", slug=slug)
-        return {"status": "no_process", "slug": slug}
-
-    coord = await pick_coordinate(
-        session,
-        org_id=org_id,
-        subblock_id=subblock["id"],
-        subblock_slug=slug,
-        covered_dimensions=covered,
-    )
-    cta_text = pick_cta(coord["dimension_keywords"], post_index=tier_index)
-    process_excerpt = await get_process_excerpt(
-        session, org_id, coord["dimension_id"], instrument_type="stock",
-    
-    )
-
-    user_prompt = PROMPT_TEMPLATE.format(
-        dimension_label=coord["dimension_label"],
-        angle_label=coord["angle_label"],
-        angle_framing=coord["angle_framing"],
-        process_excerpt=process_excerpt or "(no process excerpt)",
-        cta_text=cta_text,
-    )
-
     register = await pick_register(
         session,
         org_id=org_id,
@@ -123,7 +156,7 @@ async def generate(
         system=compose_system_prompt(
             None,
             subblock.get("style_guide"),
-            "You write trading process pieces.",
+            "You write strategy reviews for systematic traders.",
             form=None, tone=None, slug=slug,
             register=register, tier=None,
         ),
@@ -131,16 +164,12 @@ async def generate(
         prompt_name="trading.investment_strategies",
         source_payload={
             "register": register, "tier": tier,
-            "coordinate": coord["coord"],
-            "dimension_label": coord["dimension_label"],
-            "angle_label": coord["angle_label"],
-            "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
-            "process_excerpt": process_excerpt,
+            "strategy": strategy,
+            "distribution_block": distribution_block,
         },
         target_words=target_words,
         form=None, tone=None, voice=None,
-        skip_verify=True,
+        skip_verify=False,
     )
 
     post_id = await persist_post(
@@ -150,11 +179,8 @@ async def generate(
         post=post,
         source_payload={
             "register": register, "tier": tier,
-            "coordinate": coord["coord"],
-            "dimension_label": coord["dimension_label"],
-            "angle_label": coord["angle_label"],
-            "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
+            "strategy": strategy,
+            "distribution_block": distribution_block,
         },
         source_urls=[], symbols=[],
     )
@@ -162,13 +188,14 @@ async def generate(
 
     log.info(
         "investment_strategies.persisted",
-        post_id=post_id[:8], coord=coord["coord"],
+        post_id=post_id[:8],
+        strategy=strategy,
         words=post.word_count,
         status="published" if post.verification_ok else "draft",
     )
     return {
         "status": "ok", "slug": slug,
         "post_id": post_id,
-        "coordinate": coord["coord"],
+        "strategy": strategy,
         "word_count": post.word_count,
     }

@@ -169,7 +169,16 @@ REGISTERS: dict[str, str] = {
         "  Rule 5 — quote thresholds exactly. Never invert.\n"
         "  Rule 6 — checklist is first person, woven into prose.\n"
         "  Rule 7 — no formula notation. Write in words.\n"
-        "  Rule 8 — one CTA paragraph, verbatim from the prompt."
+        "  Rule 8 — one CTA paragraph, verbatim from the prompt.\n"
+        "  STRATEGY REVIEW REQUIREMENTS. Every article in this register "
+        "is a review of ONE strategy, using the FULL distribution of trades "
+        "of that type — not a handful of anecdotes. You MUST show: the "
+        "sample size; the win rate; the average win and the average loss in "
+        "dollars; the payoff ratio; the expectancy. Do NOT write \"I won "
+        "some, I lost some.\" Show the numbers. Do NOT cherry-pick a single "
+        "trade as if it were the sample. Show the distribution. Do NOT "
+        "assert that a strategy works. Show that it works, or show that the "
+        "sample is too small to know.\n"
     ),
 
     "practitioner-indicators": (
@@ -648,7 +657,7 @@ COMMON_PROHIBITIONS: list[tuple[str, str]] = [
      r"(?i)\b(?:email me|reach out|sign up|subscribe|follow me|dm me|"
      r"get in touch|book a call|join my|link in bio|"
      r"click (?:here|the link))\b"
-     r"|https?://(?!signaliq\.com/static)"
+     r"|https?://(?!signaliq\.com)"
      r"|(?<![\]()])www\.\w+"),
     ("process narration",
      r"(?i)\b(?:the (?:source|instruction|register|prompt) (?:forbids|requires|"
