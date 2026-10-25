@@ -46,6 +46,11 @@ here.
 SIGNAL FACTS (from the trader's process, authoritative):
 {signal_directions}
 
+SIGNAL BACKTEST AND BASELINE (authoritative — read before the
+backtest beat; cite these values exactly, do not invent or omit):
+
+{facts_block}
+
 State every fact above: the direction (bullish or bearish), the
 rule, the frequency, the size rule, the exit rule, the
 point-in-time, and the holding period.
@@ -53,16 +58,43 @@ point-in-time, and the holding period.
 Also state the EXIT-STRUCTURE BASELINE if present: on N random
 entries under these rules, the target was hit X% of the time, the
 stop Y%, and the time stop Z%, for an expectancy of W R per trade.
-State the breakeven hit rate this R:R requires, and say whether the
-baseline is above or below it. State that the signal's own hit rate
-is not yet measured. Do not invent a signal hit rate.
 
-Also state the EXIT-STRUCTURE BASELINE if present: on N random
-entries under these rules, the target was hit X% of the time, the
-stop Y%, and the time stop Z%, for an expectancy of W R per trade.
-State the breakeven hit rate this R:R requires, and say whether the
-baseline is above or below it. State that the signal's own hit rate
-is not yet measured. Do not invent a signal hit rate. Where the composite is
+If SIGNAL_BACKTEST.most_recent is a trade, one sentence in the
+fixes beat MUST state that trade aloud: its date, entry, stop,
+exit, exit reason, and R — copied exactly from the block. Without
+that sentence the article is incomplete. The chart is that trade's
+candles with entry, stop, and exit marked, and one sentence before
+[CHART: daily] must name that trade's date.
+
+If SIGNAL_BACKTEST.most_recent is null, say plainly that no
+backtested trade exists in this state, and describe the chart as
+the daily CL price chart only.
+
+State the sample too: n, wins, losses, the average R on wins and
+losses, and the net R. Compare the expectancy to the baseline and
+say plainly whether the signal beats it.
+
+PARAGRAPHS. Every paragraph must be at least three sentences.
+Short bursts read as notes, not prose.
+
+If SIGNAL_BACKTEST is absent, say that no backtest exists for this
+signal — do not borrow a result from another signal.
+
+Do not invent a hit rate. Every number you state here must come
+from the baseline or signal_backtest blocks.
+
+Also state the EXIT-STRUCTURE BASELINE if present, quoting its
+numbers VERBATIM. Do NOT compute a breakeven yourself — the block
+carries `breakeven_hit_rate_pct`, `avg_win_r`, `avg_loss_r`,
+`target_hit_rate_pct` and `expectancy_r`. Quote them.
+
+State: on N random entries, the target was hit X%; the breakeven at
+this payoff is Y% (from the block); the baseline is Z points
+above/below breakeven; expectancy is W R per trade. If the hit rate
+is below breakeven, say the exit structure is structurally
+negative and the signal cannot rescue it. State that the signal's
+own hit rate is not yet measured. Do not invent a signal hit rate.
+Do not compute a breakeven that differs from the block. Where the composite is
 "veto", say this signal blocks entry when it fires; where it is
 "warning", say it reduces size but does not block entry. Do not
 imply a direction by describing price action; say the word. Do not
@@ -72,7 +104,7 @@ VOICE. First person for what the trader does. Impersonal for
 how the condition behaves. Never diagnose the reader. No 'you
 can check,' 'you should,' 'your portfolio.'
 
-WORD BUDGET — 820 words MINIMUM. Hard floor: an article under 820
+WORD BUDGET — 800 words MINIMUM. Hard floor: an article under 820
 words is rejected. Reach it by developing these beats, not by
 padding:
   - Mechanism: 150-200 words on how the condition behaves.
@@ -103,8 +135,8 @@ BEAT SHAPE — seven beats, in order:
   4. Diagnostics — first person. 4-6 lived observations from
      the trader's own process. Each one states the reading, the
      trader's threshold, and what it means.
-  5. Fixes — 4-5 before/after changes.
-  6. Reframe — one sentence, standalone, impersonal.
+  5. Fixes — 4-5 before/after changes in prose.
+  6. Reframe — impersonal.
   7. End — end on the reframe. No checklist, no CTA, no URL.
 
 CHART. Where the candle chart belongs, write the tag
@@ -113,7 +145,9 @@ candlestick chart of CL. Place it where a visual of price action
 supports the mechanism, usually after beat 4.
 
 Continuous prose. No headings, no bold labels, no bullets,
-no numbered lists. Do not print beat names.
+no numbered lists. Do not print beat names. Every paragraph is at
+least THREE sentences — a two-sentence paragraph is under-developed
+and will be rejected.
 """
 
 
@@ -232,6 +266,69 @@ async def generate(
             for r in _states
         ) or "  (none on file)"
 
+    # The prompt references SIGNAL_BACKTEST, EXIT-STRUCTURE
+    # BASELINE, and most_recent by name. None of those were in
+    # _dir_lines, so the model was told to cite a trade it was
+    # never shown. Build the block here and pass it to both the
+    # prompt and the verifier payload.
+    _facts_block_parts: list[str] = []
+    if _facts:
+        _sb = _facts.get("signal_backtest")
+        if _sb:
+            _facts_block_parts.append(
+                "SIGNAL_BACKTEST:\n"
+                f"  n: {_sb.get('n')}\n"
+                f"  wins: {_sb.get('wins')}\n"
+                f"  losses: {_sb.get('losses')}\n"
+                f"  avg_win_r: {_sb.get('avg_win_r')}\n"
+                f"  avg_loss_r: {_sb.get('avg_loss_r')}\n"
+                f"  expectancy_r: {_sb.get('expectancy_r')}\n"
+                f"  net_r: {_sb.get('net_r')}"
+            )
+            _mr = _sb.get("most_recent")
+            if _mr:
+                _facts_block_parts.append(
+                    "SIGNAL_BACKTEST.most_recent (a trade — you MUST "
+                    "cite it):\n"
+                    f"  date: {_mr.get('d')}\n"
+                    f"  setup: {_mr.get('setup')}\n"
+                    f"  entry: {_mr.get('entry')}\n"
+                    f"  stop: {_mr.get('stop')}\n"
+                    f"  exit: {_mr.get('exit')}\n"
+                    f"  exit_reason: {_mr.get('exit_reason')}\n"
+                    f"  r: {_mr.get('r')}"
+                )
+            else:
+                _facts_block_parts.append(
+                    "SIGNAL_BACKTEST.most_recent: null "
+                    "(no trade in this state — say so)"
+                )
+        else:
+            _facts_block_parts.append(
+                "SIGNAL_BACKTEST: absent (no backtest for this signal)"
+            )
+        _base = _facts.get("baseline")
+        if _base and _base.get("available"):
+            _facts_block_parts.append(
+                "EXIT-STRUCTURE BASELINE (present):\n"
+                f"  n: {_base.get('n')}\n"
+                f"  target_hit_rate_pct: {_base.get('target_hit_rate_pct')}\n"
+                f"  expectancy_r: {_base.get('expectancy_r')}\n"
+                f"  first_bar: {_base.get('first_bar')}\n"
+                f"  last_bar: {_base.get('last_bar')}"
+            )
+        else:
+            _facts_block_parts.append(
+                "EXIT-STRUCTURE BASELINE: not available for this state"
+            )
+        _esb = _facts.get("exit_structure_baseline")
+        if _esb:
+            _facts_block_parts.append(
+                "EXIT_STRUCTURE_BASELINE (raw):\n"
+                + repr(_esb)
+            )
+    _facts_block = "\n\n".join(_facts_block_parts) if _facts_block_parts else ""
+
     # The validator takes state-qualified directions: "signal/state".
     _directions = {
         f"{r['signal']}/{r['state']}": r["direction"] for r in _states
@@ -249,6 +346,7 @@ async def generate(
         coordinate=coord["label"],
         trader_section=trader_section,
         signal_directions=_dir_lines,
+        facts_block=_facts_block,
     )
 
     post = await call_llm_json_verified(
@@ -274,6 +372,7 @@ async def generate(
             "coordinate_label": coord["label"],
             "trader_section": trader_section,
             "signal_directions": _dir_lines,
+            "facts_block": _facts_block,
         },
         target_words=target_words,
         form=None,
@@ -290,6 +389,7 @@ async def generate(
     _reasons = validate_fundamental_metrics(
         post.body, trader_section,
         directions=_directions, signals=_signal_words,
+        facts=_facts,
     )
     if _reasons:
         log.warning("fundamental_metrics.validator_rejected",
@@ -313,6 +413,10 @@ async def generate(
         from packages.db.tenant import set_current_org as _set_org
 
         _sym = "CL"
+        # The chart shows the most-recent backtest trade, so the
+        # image and the prose describe the same entry, stop, and
+        # exit. Without a trade the chart is decoration.
+        _mr = (_facts or {}).get("signal_backtest", {}).get("most_recent")
         async with _gsf()() as _chart_s:
             await _set_org(_chart_s, org_id)
             _candle_url = await render_trade_candlestick(
@@ -320,6 +424,10 @@ async def generate(
                 org_id=org_id,
                 symbol=_sym,
                 timeframe="1d",
+                entry=(float(_mr["entry"]) if _mr else None),
+                stop=(float(_mr["stop"]) if _mr else None),
+                exit_price=(float(_mr["exit"]) if _mr else None),
+                entry_time=(_mr["d"] if _mr else None),
             )
         if _candle_url:
             import re as _re

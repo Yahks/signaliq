@@ -118,6 +118,18 @@ async def backtest_exit_structure(
     rr = TARGET_PCT / (STOP_ATR_MULT * (1.0))  # placeholder, replaced below
     expectancy_r = sum(r_results) / n
 
+    # The win is not 1.5R. The target is 1.5% of price; the stop
+    # is 1.75 x ATR. win_R = (target_pct * price) / (1.75 * ATR).
+    # The breakeven must use the payoff the structure actually
+    # delivers, not an assumed 1.5:1.
+    avg_win_r = sum(r for r in r_results if r > 0) / max(1, sum(1 for r in r_results if r > 0))
+    avg_loss_r = abs(sum(r for r in r_results if r < 0) / max(1, sum(1 for r in r_results if r < 0))) if any(r < 0 for r in r_results) else 0.0
+    win_r = avg_win_r if avg_win_r > 0 else (TARGET_PCT / 0.02)  # fallback: 1.5% / 2.0%
+    if avg_loss_r > 0:
+        breakeven = avg_loss_r / (win_r + avg_loss_r)
+    else:
+        breakeven = 0.0
+
     return {
         "available": True,
         "symbol": symbol,
@@ -125,8 +137,11 @@ async def backtest_exit_structure(
         "target_hits": target_hits,
         "stop_hits": stop_hits,
         "time_exits": time_exits,
-        "target_hit_rate_pct": hit_rate * 100.0,
-        "expectancy_r": expectancy_r,
+        "target_hit_rate_pct": round(hit_rate * 100.0, 2),
+        "expectancy_r": round(expectancy_r, 4),
+        "avg_win_r": round(avg_win_r, 3),
+        "avg_loss_r": round(-avg_loss_r, 3),
+        "breakeven_hit_rate_pct": round(breakeven * 100.0, 1),
         "first_bar": bars[0]["trade_date"].isoformat(),
         "last_bar": bars[-1]["trade_date"].isoformat(),
     }
