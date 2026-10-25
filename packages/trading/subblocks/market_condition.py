@@ -386,6 +386,7 @@ async def generate(
         tone=None,
         voice=None,
         skip_verify=True,
+        exclude_standard={"LENGTH", "CTA_RULE", "PRE_RETURN_CHECKS"},
     )
 
     try:

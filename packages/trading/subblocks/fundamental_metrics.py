@@ -183,6 +183,7 @@ async def generate(
         tone=None,
         voice=None,
         skip_verify=False,
+        exclude_standard={"LENGTH", "CTA_RULE", "PRE_RETURN_CHECKS"},
     )
 
     # ── Validation ──

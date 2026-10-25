@@ -239,12 +239,29 @@ If any check fails, rewrite the draft before returning.
 # THE ASSEMBLED STANDARD
 # ---------------------------------------------------------------
 
-STANDARD = "\n\n".join([
-    EVIDENCE,
-    CITATION_FORMAT,
-    LENGTH,
-    FORBIDDEN,
-    REFRAME_RULE,
-    CTA_RULE,
-    PRE_RETURN_CHECKS,
-])
+_SECTIONS = [
+    ("EVIDENCE", EVIDENCE),
+    ("CITATION_FORMAT", CITATION_FORMAT),
+    ("LENGTH", LENGTH),
+    ("FORBIDDEN", FORBIDDEN),
+    ("REFRAME_RULE", REFRAME_RULE),
+    ("CTA_RULE", CTA_RULE),
+    ("PRE_RETURN_CHECKS", PRE_RETURN_CHECKS),
+]
+
+
+def build_standard(exclude: set[str] | None = None) -> str:
+    """The shared standard, minus any named sections.
+
+    A subblock that defines its own length floor and forbids a CTA
+    must exclude LENGTH, CTA_RULE and PRE_RETURN_CHECKS — otherwise
+    the shared block's 600-word floor and mandatory CTA arrive
+    BEFORE the subblock prompt and win.
+    """
+    exclude = exclude or set()
+    return "\n\n".join(
+        block for name, block in _SECTIONS if name not in exclude
+    )
+
+
+STANDARD = build_standard()

@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
 from packages.trading.shared_standard import STANDARD
+from packages.trading.shared_standard import build_standard
 
 log = get_logger(__name__)
 
@@ -918,6 +919,7 @@ async def call_llm_json(
     target_words: int = 400,
     use_cache: bool = True,
     skip_standard: bool = False,
+    exclude_standard: set[str] | None = None,
     temperature: float = 0.0,
 ) -> TradingPost:
     """Call the reasoning LLM and parse {title, body} from the response.
@@ -933,8 +935,9 @@ async def call_llm_json(
         # TITLE/BODY markers and its own rules.
         full_system = system
     else:
+        _std = build_standard(exclude_standard) if exclude_standard else STANDARD
         full_system = (
-            f"{STANDARD}\n\n"
+            f"{_std}\n\n"
             f"--- SUBBLOCK FORMAT ---\n\n"
             f"{system}\n\n"
             f"OUTPUT FORMAT (strict):\n"
@@ -1405,6 +1408,7 @@ async def call_llm_json_verified(
     voice: str | None = None,
     skip_verify: bool = False,
     skip_standard: bool = False,
+    exclude_standard: set[str] | None = None,
     temperature: float = 0.0,
 ) -> TradingPost:
     """Public entry point. Calls the impl, then stamps the returned
@@ -1424,6 +1428,7 @@ async def call_llm_json_verified(
         use_cache=use_cache,
         skip_verify=skip_verify,
         skip_standard=skip_standard,
+        exclude_standard=exclude_standard,
         temperature=temperature,
     )
     post.form = form
@@ -1445,6 +1450,7 @@ async def _call_llm_json_verified_impl(
     use_cache: bool = True,
     skip_verify: bool = False,
     skip_standard: bool = False,
+    exclude_standard: set[str] | None = None,
     temperature: float = 0.0,
 ) -> TradingPost:
     """Single-pass generation. Replaces the multi-retry impl (S.8.20).
@@ -1486,6 +1492,7 @@ async def _call_llm_json_verified_impl(
         target_words=target_words,
         use_cache=use_cache,
         skip_standard=skip_standard,
+        exclude_standard=exclude_standard,
         temperature=temperature,
     )
 
