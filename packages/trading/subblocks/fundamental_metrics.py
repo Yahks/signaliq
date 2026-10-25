@@ -43,6 +43,14 @@ here.
 {trader_section}
 --- END TRADER'S SECTION ---
 
+SIGNAL DIRECTIONS (from the trader's process, authoritative):
+{signal_directions}
+
+Whenever you name a signal — a draw, a cut, a widening spread —
+you MUST state whether you treat it as bullish or bearish, and it
+must match the direction above. Do not imply a direction by
+describing price action; say the word.
+
 VOICE. First person for what the trader does. Impersonal for
 how the condition behaves. Never diagnose the reader. No 'you
 can check,' 'you should,' 'your portfolio.'
@@ -123,9 +131,29 @@ async def generate(
     )
     target_words = target_words_for(subblock["slug"], register, tier)
 
+    # Structured signal directions: the article must state the
+    # direction it treats each signal as, and the validator compares
+    # to this table.
+    _dir_rows = (await session.execute(sql_text("""
+        SELECT signal, direction FROM fundamental_signal_directions
+        WHERE org_id = :oid AND deleted_at IS NULL
+    """), {"oid": org_id})).mappings().all()
+    _directions = {r["signal"]: r["direction"] for r in _dir_rows}
+    _signal_words = {
+        "api_draw_gt_5mb": "draw",
+        "opec_cut_gt_0_5mbpd": "cut",
+        "spread_widening_gt_0_50": "widening spread",
+    }
+
+    _dir_lines = "\n".join(
+        f"  - a {_signal_words.get(k, k)} is {v}"
+        for k, v in sorted(_directions.items())
+    ) or "  (none on file)"
+
     user_prompt = PROMPT_TEMPLATE.format(
         coordinate=coord["label"],
         trader_section=trader_section,
+        signal_directions=_dir_lines,
     )
 
     post = await call_llm_json_verified(
@@ -154,8 +182,24 @@ async def generate(
         form=None,
         tone=None,
         voice=None,
-        skip_verify=True,
+        skip_verify=False,
     )
+
+    # ── Validation ──
+    from packages.trading.fundamental_metrics_validator import (
+        validate_fundamental_metrics,
+    )
+    _reasons = validate_fundamental_metrics(
+        post.body, trader_section,
+        directions=_directions, signals=_signal_words,
+    )
+    if _reasons:
+        log.warning("fundamental_metrics.validator_rejected",
+                    reasons=_reasons)
+        post.verification_ok = False
+        post.unsupported_claims = list(
+            getattr(post, "unsupported_claims", None) or []
+        ) + _reasons
 
     # ── Candle chart (CL daily) ──
     # The trader's process is CL throughout (entry_logic,
