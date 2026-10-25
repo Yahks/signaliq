@@ -308,7 +308,13 @@ async def promote_reviewed_drafts(session: AsyncSession, org_id: str) -> int:
 async def load_state_facts(
     session: AsyncSession, org_id: str, signal: str, state: str,
 ) -> dict | None:
-    """The facts the article states for one signal state."""
+    """The facts the article states for one signal state.
+
+    Also attaches the exit-structure baseline computed from stored
+    bars: what random entries under the same target/stop produce.
+    The signal's own hit rate is not yet measurable — the signal has
+    not been recorded as a time series.
+    """
     row = (await session.execute(sql_text("""
         SELECT d.signal, d.state, d.direction, d.frequency,
                d.rule_definition, d.size_rule, d.exit_rule,
@@ -322,4 +328,14 @@ async def load_state_facts(
           AND d.deleted_at IS NULL
         LIMIT 1
     """), {"o": org_id, "s": signal, "st": state})).mappings().first()
-    return dict(row) if row else None
+    if not row:
+        return None
+    out = dict(row)
+    try:
+        from .signal_backtest import backtest_exit_structure
+        bt = await backtest_exit_structure(session, org_id, "CL")
+        if bt.get("available"):
+            out["baseline"] = bt
+    except Exception as exc:
+        log.warning("facts.baseline_failed", error=str(exc)[:120])
+    return out

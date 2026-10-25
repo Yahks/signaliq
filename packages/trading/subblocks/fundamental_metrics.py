@@ -48,7 +48,21 @@ SIGNAL FACTS (from the trader's process, authoritative):
 
 State every fact above: the direction (bullish or bearish), the
 rule, the frequency, the size rule, the exit rule, the
-point-in-time, and the holding period. Where the composite is
+point-in-time, and the holding period.
+
+Also state the EXIT-STRUCTURE BASELINE if present: on N random
+entries under these rules, the target was hit X% of the time, the
+stop Y%, and the time stop Z%, for an expectancy of W R per trade.
+State the breakeven hit rate this R:R requires, and say whether the
+baseline is above or below it. State that the signal's own hit rate
+is not yet measured. Do not invent a signal hit rate.
+
+Also state the EXIT-STRUCTURE BASELINE if present: on N random
+entries under these rules, the target was hit X% of the time, the
+stop Y%, and the time stop Z%, for an expectancy of W R per trade.
+State the breakeven hit rate this R:R requires, and say whether the
+baseline is above or below it. State that the signal's own hit rate
+is not yet measured. Do not invent a signal hit rate. Where the composite is
 "veto", say this signal blocks entry when it fires; where it is
 "warning", say it reduces size but does not block entry. Do not
 imply a direction by describing price action; say the word. Do not
