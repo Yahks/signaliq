@@ -298,34 +298,42 @@ async def covered_dimensions(session, org_id: str) -> set[str]:
 # process (which starts a new cycle).
 # ─────────────────────────────────────────────────────────────────────
 
+# The fundamental_metrics coordinates ARE the signal states.
+#
+# Every article is about one state the trader's section defines, so
+# the source supports every claim and the verifier has material to
+# check. A conceptual coordinate ("why correlation rises in
+# drawdowns") had no source material — the trader's section is three
+# crude-oil signal rules — and the model had to invent the mechanism,
+# which the verify pass correctly rejected.
+#
+# Six states per cycle. No wrap: a new process save opens a new
+# cycle.
 FUNDAMENTAL_METRICS_COORDINATES: dict[str, str] = {
-    "FM1": "why trend persistence varies by regime",
-    "FM2": "why mean reversion works in compressed volatility",
-    "FM3": "why correlation rises in drawdowns",
-    "FM4": "why diversification fails in stress",
-    "FM5": "why breadth narrows before declines",
-    "FM6": "why gaps cluster",
-    # The spread is four states, not one. Each coordinate is a
-    # single path with a single direction (see
-    # fundamental_signal_states); an article covering "the spread"
-    # in general would have to hold two contradictory theses.
-    "FM7a": "why widening backwardation is more bullish, not less",
-    "FM7b": "why narrowing backwardation toward contango erodes "
-            "the bullish bias",
-    "FM7c": "why widening contango is more bearish",
-    "FM7d": "why narrowing contango toward backwardation erodes "
-            "the bearish bias",
-    "FM8": "why momentum decays",
+    "FM_OPEC_CUT": "an OPEC cut above 0.5 million barrels per day",
+    "FM_API_DRAW": "an API inventory draw above 5 million barrels",
+    "FM_BACKWARDATION_WIDENING":
+        "backwardation widening: spot above futures and the gap growing",
+    "FM_BACKWARDATION_NARROWING":
+        "backwardation narrowing toward contango: the bullish bias eroding",
+    "FM_CONTANGO_WIDENING":
+        "contango widening: futures above spot and the gap growing",
+    "FM_CONTANGO_NARROWING":
+        "contango narrowing toward backwardation: the bearish bias eroding",
+}
+
+# Which (signal, state) each coordinate refers to. The prompt and the
+# validator use exactly this one row.
+FM_COORDINATE_STATE: dict[str, tuple[str, str]] = {
+    "FM_OPEC_CUT": ("opec_cut", "above_0_5mbpd"),
+    "FM_API_DRAW": ("api_draw", "above_5mb"),
+    "FM_BACKWARDATION_WIDENING": ("spread", "backwardation_widening"),
+    "FM_BACKWARDATION_NARROWING": ("spread", "backwardation_narrowing"),
+    "FM_CONTANGO_WIDENING": ("spread", "contango_widening"),
+    "FM_CONTANGO_NARROWING": ("spread", "contango_narrowing"),
 }
 
 # Which signal state each spread coordinate refers to.
-FM_COORDINATE_STATE: dict[str, tuple[str, str]] = {
-    "FM7a": ("spread", "backwardation_widening"),
-    "FM7b": ("spread", "backwardation_narrowing"),
-    "FM7c": ("spread", "contango_widening"),
-    "FM7d": ("spread", "contango_narrowing"),
-}
-
 
 async def pick_fm_coordinate(
     session, *, org_id: str, subblock_id: str,
