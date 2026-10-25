@@ -27,48 +27,49 @@ _BEAR = r"(bearish|supports? a? ?short|supports? a? ?bear|nudges? me toward shor
 def _check_signal_signs(
     body: str, directions: dict[str, str], signals: dict[str, str],
 ) -> list[str]:
-    """Per signal: the article must state its direction, and the
-    direction must match the structured value.
+    """Per signal state: the first direction the article states for
+    that state must match the table.
 
-    Scans the whole body once per signal, not once per sentence.
-    An article that says "a draw is bullish" and then mentions
-    "draw" again later is correct, not a violation. Exactly one
-    reason per signal at most:
-
-      - never states a direction           -> "does not state"
-      - states the wrong direction         -> "treats it as <wrong>"
-      - states the right direction         -> pass
+    Positional, not a vote. The sentence "Backwardation widening is
+    bearish: the bullish bias is eroding" claims bearish — the word
+    right after the signal name is the claim, and the later mention
+    of "bullish" is part of the explanation, not a second claim.
+    Counting direction words across the sentence made that a tie and
+    passed it.
     """
-    _BULL = r"bullish|support(s|ed)? (a )?(long|bull)|nudge[sd]? me toward long"
-    _BEAR = (
-        r"bearish|support(s|ed)? (a )?(short|bear)|nudge[sd]? me toward short"
-        r"|eroded|evaporated|stalled|weakened|sold off|faded"
-    )
+    _BULL = r"bullish|\bbull\b|long bias|toward long"
+    _BEAR = r"bearish|\bbear\b|short bias|toward short|erod(?:e|es|ed|ing)"
     reasons: list[str] = []
     sentences = re.split(r"(?<=[.!?])\s+", body or "")
 
     for key, dirn in directions.items():
         word = signals.get(key, key).lower()
-        naming = [s for s in sentences if word in s.lower()]
-        if not naming:
-            continue
-        bulls = sum(1 for s in naming if re.search(_BULL, s.lower()))
-        bears = sum(1 for s in naming if re.search(_BEAR, s.lower()))
+        claimed = None
+        for sent in sentences:
+            s = sent.lower()
+            pos = s.find(word)
+            if pos < 0:
+                continue
+            tail = s[pos + len(word):]
+            m_bull = re.search(_BULL, tail)
+            m_bear = re.search(_BEAR, tail)
+            if not m_bull and not m_bear:
+                continue
+            if m_bull and (not m_bear or m_bull.start() < m_bear.start()):
+                claimed = "bullish"
+            else:
+                claimed = "bearish"
+            break
 
-        if bulls == 0 and bears == 0:
+        if claimed is None:
             reasons.append(
-                f"the article names a {word} but never states whether "
-                f"it treats it as bullish or bearish"
+                f"the article names {word} but never states whether it "
+                f"treats it as bullish or bearish"
             )
-        elif dirn == "bullish" and bears > bulls:
+        elif claimed != dirn:
             reasons.append(
-                f"the trader's data says a {word} is bullish, but the "
-                f"article treats it as bearish"
-            )
-        elif dirn == "bearish" and bulls > bears:
-            reasons.append(
-                f"the trader's data says a {word} is bearish, but the "
-                f"article treats it as bullish"
+                f"the trader's data says {word} is {dirn}, but the "
+                f"article states it is {claimed}"
             )
     return reasons
 

@@ -134,21 +134,54 @@ async def generate(
     # Structured signal directions: the article must state the
     # direction it treats each signal as, and the validator compares
     # to this table.
-    _dir_rows = (await session.execute(sql_text("""
-        SELECT signal, direction FROM fundamental_signal_directions
-        WHERE org_id = :oid AND deleted_at IS NULL
-    """), {"oid": org_id})).mappings().all()
-    _directions = {r["signal"]: r["direction"] for r in _dir_rows}
-    _signal_words = {
-        "api_draw_gt_5mb": "draw",
-        "opec_cut_gt_0_5mbpd": "cut",
-        "spread_widening_gt_0_50": "widening spread",
-    }
+    # Per-state directions. If this coordinate is a spread state
+    # (FM7a-FM7d), only THAT state is loaded — the article is about
+    # one path, with one direction. Loading every state would let the
+    # article hold two contradictory theses, which is exactly the
+    # defect that produced "widening backwardation erodes the bullish
+    # bias".
+    from ..registry import FM_COORDINATE_STATE
+    _coord_state = FM_COORDINATE_STATE.get(coord["coord"])
+    if _coord_state:
+        _sig, _state = _coord_state
+        _rows = (await session.execute(sql_text("""
+            SELECT signal, state, direction, description
+            FROM fundamental_signal_states
+            WHERE org_id = :oid AND signal = :sig AND state = :st
+              AND deleted_at IS NULL
+        """), {"oid": org_id, "sig": _sig, "st": _state})).mappings().all()
+    else:
+        # A conceptual coordinate (FM1-FM6, FM8) is not about a
+        # signal state. Load nothing: the article cannot name a state
+        # it was never given, and requiring it to would flag every
+        # sentence that happens to contain "draw" or "cut".
+        _rows = []
 
-    _dir_lines = "\n".join(
-        f"  - a {_signal_words.get(k, k)} is {v}"
-        for k, v in sorted(_directions.items())
-    ) or "  (none on file)"
+    _states = [dict(r) for r in _rows]
+    if _coord_state and _states:
+        _st0 = _states[0]
+        _dir_lines = (
+            f"  - {_st0['signal']} / {_st0['state']} is "
+            f"{_st0['direction']}: {_st0.get('description') or ''}"
+        )
+    else:
+        _dir_lines = "\n".join(
+            f"  - {r['signal']} / {r['state']} is {r['direction']}"
+            for r in _states
+        ) or "  (none on file)"
+
+    # The validator takes state-qualified directions: "signal/state".
+    _directions = {
+        f"{r['signal']}/{r['state']}": r["direction"] for r in _states
+    }
+    _signal_words = {
+        "spread/backwardation_widening": "backwardation widening",
+        "spread/backwardation_narrowing": "backwardation narrowing",
+        "spread/contango_widening": "contango widening",
+        "spread/contango_narrowing": "contango narrowing",
+        "api_draw/above_5mb": "draw",
+        "opec_cut/above_0_5mbpd": "cut",
+    }
 
     user_prompt = PROMPT_TEMPLATE.format(
         coordinate=coord["label"],
@@ -177,6 +210,8 @@ async def generate(
             "tier": tier,
             "coordinate": coord["coord"],
             "coordinate_label": coord["label"],
+            "trader_section": trader_section,
+            "signal_directions": _dir_lines,
         },
         target_words=target_words,
         form=None,
@@ -254,6 +289,8 @@ async def generate(
             "tier": tier,
             "coordinate": coord["coord"],
             "coordinate_label": coord["label"],
+            "trader_section": trader_section,
+            "signal_directions": _dir_lines,
         },
         source_urls=[],
         symbols=["CL"],

@@ -305,8 +305,25 @@ FUNDAMENTAL_METRICS_COORDINATES: dict[str, str] = {
     "FM4": "why diversification fails in stress",
     "FM5": "why breadth narrows before declines",
     "FM6": "why gaps cluster",
-    "FM7": "why spreads widen in stress",
+    # The spread is four states, not one. Each coordinate is a
+    # single path with a single direction (see
+    # fundamental_signal_states); an article covering "the spread"
+    # in general would have to hold two contradictory theses.
+    "FM7a": "why widening backwardation is more bullish, not less",
+    "FM7b": "why narrowing backwardation toward contango erodes "
+            "the bullish bias",
+    "FM7c": "why widening contango is more bearish",
+    "FM7d": "why narrowing contango toward backwardation erodes "
+            "the bearish bias",
     "FM8": "why momentum decays",
+}
+
+# Which signal state each spread coordinate refers to.
+FM_COORDINATE_STATE: dict[str, tuple[str, str]] = {
+    "FM7a": ("spread", "backwardation_widening"),
+    "FM7b": ("spread", "backwardation_narrowing"),
+    "FM7c": ("spread", "contango_widening"),
+    "FM7d": ("spread", "contango_narrowing"),
 }
 
 
