@@ -43,13 +43,16 @@ here.
 {trader_section}
 --- END TRADER'S SECTION ---
 
-SIGNAL DIRECTIONS (from the trader's process, authoritative):
+SIGNAL FACTS (from the trader's process, authoritative):
 {signal_directions}
 
-Whenever you name a signal — a draw, a cut, a widening spread —
-you MUST state whether you treat it as bullish or bearish, and it
-must match the direction above. Do not imply a direction by
-describing price action; say the word.
+State every fact above: the direction (bullish or bearish), the
+rule, the frequency, the size rule, the exit rule, the
+point-in-time, and the holding period. Where the composite is
+"veto", say this signal blocks entry when it fires; where it is
+"warning", say it reduces size but does not block entry. Do not
+imply a direction by describing price action; say the word. Do not
+add a fact that is not listed above.
 
 VOICE. First person for what the trader does. Impersonal for
 how the condition behaves. Never diagnose the reader. No 'you
@@ -74,8 +77,15 @@ BEAT SHAPE — seven beats, in order:
   1. Hook — first person. The trader's own view on the
      condition. 'I used to treat X as Y. Then I saw...'
   2. Problem — one sentence. What the trader missed.
-  3. Mechanism — impersonal. How the condition behaves.
-     Qualitative. Do not invent a formula.
+  3. Mechanism — impersonal. State the effect of the rule ONLY as
+     the SIGNAL FACTS above state it. If the facts say "a draw
+     greater than 5 million barrels supports a bullish bias," that
+     is the whole mechanism. Do NOT explain why a draw is bullish.
+     Do NOT claim it tightens supply, contracts available crude,
+     prompts contract rolls, hedges, buying pressure, or a
+     self-reinforcing loop. Those are causal claims the source does
+     not make. If the fact row gives no mechanism, write one
+     sentence stating the rule and move on.
   4. Diagnostics — first person. 4-6 lived observations from
      the trader's own process. Each one states the reading, the
      trader's threshold, and what it means.
@@ -141,9 +151,12 @@ async def generate(
     # defect that produced "widening backwardation erodes the bullish
     # bias".
     from ..registry import FM_COORDINATE_STATE
+    from ..fundamental_state_drafter import load_state_facts
     _coord_state = FM_COORDINATE_STATE.get(coord["coord"])
+    _facts = None
     if _coord_state:
         _sig, _state = _coord_state
+        _facts = await load_state_facts(session, org_id, _sig, _state)
         _rows = (await session.execute(sql_text("""
             SELECT signal, state, direction, description
             FROM fundamental_signal_states
@@ -158,7 +171,22 @@ async def generate(
         _rows = []
 
     _states = [dict(r) for r in _rows]
-    if _coord_state and _states:
+    if _facts:
+        _dir_lines = "\n".join([
+            f"  signal/state: {_facts['signal']}/{_facts['state']}",
+            f"  direction: {_facts['direction']}",
+            f"  rule: {_facts['rule_definition']}",
+            f"  frequency: {_facts['frequency']}",
+            f"  size rule: {_facts['size_rule']}",
+            f"  exit rule: {_facts['exit_rule']}",
+            f"  point-in-time: {_facts['point_in_time']}",
+            f"  holding period: {_facts['holding_period']}",
+            f"  composite: {_facts['composite_rule']} — "
+            + ("this signal blocks entry when it fires"
+               if _facts['composite_rule'] == 'veto'
+               else "this signal reduces size; it does not block entry"),
+        ])
+    elif _coord_state and _states:
         _st0 = _states[0]
         _dir_lines = (
             f"  - {_st0['signal']} / {_st0['state']} is "

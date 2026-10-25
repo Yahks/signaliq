@@ -70,10 +70,17 @@ Return JSON with exactly these keys:
   holding_period    the window
   source_columns    {{key: column_name}} for each value above
 
-For a SPREAD state, `frequency` and `rule_definition` MUST come from
-the `fundamental_metrics` column — that is the column that defines
-the spread. Do not use `daily_scan` or `entry_logic` for a spread
-row.
+`frequency` and `rule_definition` MUST come from the signal's own
+column, and from no other:
+
+  - opec_cut  -> fundamental_opec_cut
+  - api_draw  -> fundamental_api_draw
+  - spread    -> fundamental_spread
+
+Do not use `daily_scan`, `entry_logic`, or any other column for
+those two fields. The other fields (size_rule, exit_rule,
+point_in_time, holding_period) come from the column that states
+them: position_sizing, exit_logic, daily_scan, holding_period.
 
 Do not write a value that is not in the document. If a fact is not
 stated in any column, write "not stated" and cite "" for it.
@@ -148,12 +155,24 @@ async def draft_states(session: AsyncSession, org_id: str) -> list[dict]:
                 ok = False
                 continue
             cited_text = "\n".join(doc.get(c) or "" for c in cols)
-            # numbers must appear in the cited text
+            # numbers must appear in the cited text. point_in_time
+            # is legitimately composite: the spread is compared daily
+            # (fundamental_spread) and the scan runs at 07:00 CT
+            # (daily_scan), so it may cite either.
             nums = _numbers(val)
-            if nums and not nums.issubset(_numbers(cited_text)):
-                log.warning("state_draft.unsourced_number",
-                            key=key, field=field, nums=sorted(nums))
-                ok = False
+            if nums:
+                _allowed_text = cited_text
+                if field == "point_in_time":
+                    _allowed_text = "\n".join(
+                        doc.get(c) or ""
+                        for c in ("daily_scan", "entry_logic",
+                                  SIGNAL_COLUMN.get(sig, ""))
+                        if c
+                    )
+                if not nums.issubset(_numbers(_allowed_text)):
+                    log.warning("state_draft.unsourced_number",
+                                key=key, field=field, nums=sorted(nums))
+                    ok = False
             # frequency words must appear in the cited text
             if field == "frequency":
                 for w in ("daily", "weekly", "monthly"):
@@ -185,19 +204,42 @@ async def draft_states(session: AsyncSession, org_id: str) -> list[dict]:
             log.warning("state_draft.no_composite", key=key, signal=sig)
             ok = False
 
+        # If the signal's own column states a frequency word, the
+        # draft must carry it rather than "not stated".
+        _own_col = SIGNAL_COLUMN.get(sig, "")
+        _col_text = (doc.get(_own_col) or "").lower()
+        _freq_val = str(d.get("frequency") or "").lower()
+        if _freq_val.strip() == "not stated":
+            for _w in ("daily", "weekly", "monthly"):
+                if _w in _col_text:
+                    log.warning("state_draft.frequency_missed",
+                                key=key, word=_w, column=_own_col)
+                    ok = False
+                    break
+
         # A row must not invert itself: if the rule says the row's own
         # direction is "eroding", the direction field and the rule
         # disagree. "narrowing backwardation erodes bearish bias"
         # under direction=bearish is the contradiction.
         _rule = str(d.get("rule_definition") or "").lower()
         if _rule and _rule != "not stated":
+            # The spread column names all four states. A row quotes
+            # the whole sentence; only the clause for THIS state
+            # applies. Split on clauses and check the one that names
+            # the state.
+            _clauses = [c.strip() for c in _rule.replace(";", ".").split(".") if c.strip()]
+            _state_words = [w for w in st.lower().split("_") if w]
             _own = direction.lower()
-            _other = "bullish" if _own == "bearish" else "bearish"
-            if f"{_own} bias" in _rule and ("erod" in _rule):
-                log.warning("state_draft.self_contradiction",
-                            key=key, direction=direction, rule=_rule[:60])
-                ok = False
-            del _other
+            _relevant = [
+                c for c in _clauses
+                if all(w in c for w in _state_words)
+            ]
+            for _c in (_relevant or _clauses):
+                if f"{_own} bias" in _c and "erod" in _c:
+                    log.warning("state_draft.self_contradiction",
+                                key=key, direction=direction, rule=_c[:60])
+                    ok = False
+                    break
         if not ok:
             continue
 
@@ -222,3 +264,62 @@ async def draft_states(session: AsyncSession, org_id: str) -> list[dict]:
         out.append({"signal": sig, "state": st, "direction": direction})
     await session.commit()
     return out
+
+
+async def promote_reviewed_drafts(session: AsyncSession, org_id: str) -> int:
+    """Copy reviewed drafts into fundamental_signal_states.
+
+    A draft is promoted only when reviewed_at is set. The live table
+    is what the article reads; nothing reaches it without review.
+
+    The live table carries the direction and the description; the
+    draft's frequency, size_rule, exit_rule, point_in_time,
+    holding_period and source_columns travel in the article's
+    source_payload, not in the state table, because they describe
+    the signal's application, not its sign.
+    """
+    rows = (await session.execute(sql_text("""
+        SELECT d.signal, d.state, d.direction, d.rule_definition
+        FROM fundamental_signal_state_drafts d
+        WHERE d.org_id = :o AND d.deleted_at IS NULL
+          AND d.reviewed_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM fundamental_signal_states s
+            WHERE s.org_id = d.org_id AND s.signal = d.signal
+              AND s.state = d.state AND s.deleted_at IS NULL
+          )
+    """), {"o": org_id})).mappings().all()
+
+    n = 0
+    for r in rows:
+        await session.execute(sql_text("""
+            INSERT INTO fundamental_signal_states
+                (org_id, signal, state, direction, description)
+            VALUES (:o, :s, :st, :d, :desc)
+        """), {
+            "o": org_id, "s": r["signal"], "st": r["state"],
+            "d": r["direction"], "desc": r["rule_definition"],
+        })
+        n += 1
+    await session.commit()
+    return n
+
+
+async def load_state_facts(
+    session: AsyncSession, org_id: str, signal: str, state: str,
+) -> dict | None:
+    """The facts the article states for one signal state."""
+    row = (await session.execute(sql_text("""
+        SELECT d.signal, d.state, d.direction, d.frequency,
+               d.rule_definition, d.size_rule, d.exit_rule,
+               d.point_in_time, d.holding_period, d.source_columns,
+               c.composite_rule
+        FROM fundamental_signal_state_drafts d
+        LEFT JOIN fundamental_signal_composite c
+          ON c.org_id = d.org_id AND c.signal = d.signal
+         AND c.deleted_at IS NULL
+        WHERE d.org_id = :o AND d.signal = :s AND d.state = :st
+          AND d.deleted_at IS NULL
+        LIMIT 1
+    """), {"o": org_id, "s": signal, "st": state})).mappings().first()
+    return dict(row) if row else None
