@@ -124,7 +124,27 @@ async def generate(
     subblock: dict[str, Any],
 ) -> dict[str, Any] | None:
     # 1. Read the trader's fundamental-metrics section.
-    trader_section = await get_fundamental_metrics_section(session, org_id)
+    # The split columns are authoritative. fundamental_metrics is a
+    # legacy paragraph that duplicates them and once carried the
+    # level-based contango veto; reading it alongside the split
+    # columns let the model write from the stale text.
+    _cols = (await session.execute(sql_text("""
+        SELECT fundamental_opec_cut, fundamental_api_draw,
+               fundamental_spread
+        FROM trader_process
+        WHERE org_id = :oid AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 1
+    """), {"oid": org_id})).mappings().first()
+    if _cols:
+        trader_section = "\n\n".join(
+            s for s in (
+                (_cols["fundamental_opec_cut"] or "").strip(),
+                (_cols["fundamental_api_draw"] or "").strip(),
+                (_cols["fundamental_spread"] or "").strip(),
+            ) if s
+        )
+    else:
+        trader_section = await get_fundamental_metrics_section(session, org_id)
     if not trader_section:
         log.warning("fundamental_metrics.no_section", org_id=org_id[:8])
         return {"status": "no_section", "slug": subblock["slug"]}

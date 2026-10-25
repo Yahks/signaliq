@@ -47,18 +47,28 @@ def _check_signal_signs(
         claimed = None
         for sent in sentences:
             s = sent.lower()
-            pos = s.find(word)
-            if pos < 0:
+            if word not in s:
                 continue
-            tail = s[pos + len(word):]
-            m_bull = re.search(_BULL, tail)
-            m_bear = re.search(_BEAR, tail)
+            # The direction may precede or follow the signal name —
+            # "widening contango is more bearish" states bearish just
+            # as plainly as "bearish widening contango". Match the
+            # whole sentence, and prefer the direction word nearest
+            # the signal when both appear.
+            pos = s.find(word)
+            m_bull = re.search(_BULL, s)
+            m_bear = re.search(_BEAR, s)
             if not m_bull and not m_bear:
                 continue
-            if m_bull and (not m_bear or m_bull.start() < m_bear.start()):
+            if m_bull and not m_bear:
                 claimed = "bullish"
-            else:
+            elif m_bear and not m_bull:
                 claimed = "bearish"
+            else:
+                claimed = (
+                    "bullish"
+                    if abs(m_bull.start() - pos) <= abs(m_bear.start() - pos)
+                    else "bearish"
+                )
             break
 
         if claimed is None:
