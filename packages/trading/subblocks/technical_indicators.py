@@ -168,6 +168,7 @@ async def generate(
             "dimension_label": coord["dimension_label"],
             "angle_label": coord["angle_label"],
             "angle_framing": coord["angle_framing"],
+            "skeleton": skeleton,
         },
         source_urls=[], symbols=[],
     )

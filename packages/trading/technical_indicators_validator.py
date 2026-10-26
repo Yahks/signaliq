@@ -119,27 +119,64 @@ def _skeleton_rule_percents(skeleton: str) -> set[str]:
     return set(re.findall(r"(\d+(?:\.\d+)?)\s*%", m.group(1)))
 
 
-def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
-    """A percentage must be a real current-process rule, a trade
-    percentage, or a batch figure. Anything else is invented.
+def _skeleton_trade_percents(skeleton: str) -> set[str]:
+    """Per-trade 'X% of equity' values from the TRADES block."""
+    return {
+        m.group(1)
+        for m in re.finditer(r"(-?\d+(?:\.\d+)?)% of equity", skeleton or "")
+    }
 
-    '0.5% clearance' is in the process's CURRENT PROCESS section, so
-    it passes; '15% variance reduction' and '0.4% stop cap' appear
-    nowhere and are flagged.
+
+# Rule percentages may only be cited in the context of the rule
+# they belong to. "0.5% clearance" is real; "0.5% of equity" is a
+# different claim and must match a trade's actual percent.
+_RULE_CONTEXT = {
+    "0.5": ("clearance", "range", "high", "low"),
+}
+
+
+def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
+    """Every percentage must be either:
+      - a trade's 'X% of equity' (matched to the skeleton's trades), or
+      - a rule percentage cited in the rule's own context
+        ('0.5% clearance'), not repurposed ('0.5% of equity').
+    Anything else is invented.
     """
     reasons: list[str] = []
-    allowed = set(_skeleton_rule_percents(skeleton))
-    allowed |= _skeleton_batch_numbers(skeleton)
-    allowed |= _body_numbers(skeleton)
-    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*%", body or ""):
-        v = m.group(1)
-        if v in allowed:
+    rule_pcts = _skeleton_rule_percents(skeleton)
+    # Normalize signs on both sides: the body may write "0.7318%"
+    # where the skeleton says "-0.7318% of equity", or vice versa.
+    trade_pcts = {v.lstrip("-") for v in _skeleton_trade_percents(skeleton)}
+    batch_pcts = {n.lstrip("-") for n in _skeleton_batch_numbers(skeleton)}
+    b = body or ""
+
+    for m in re.finditer(r"(-?\d+(?:\.\d+)?)\s*%", b):
+        v = m.group(1).lstrip("-")
+        # Does this percentage attach to "of equity"?
+        tail = b[m.end():m.end() + 16].lower()
+        is_equity_claim = tail.startswith(" of equity") or tail.startswith("of equity")
+        if is_equity_claim:
+            if v not in trade_pcts:
+                reasons.append(
+                    f"'{m.group(0)} of equity' is not any skeleton "
+                    f"trade's percent of equity (invented)"
+                )
             continue
-        reasons.append(f"percentage {v}% is not a current rule, a trade "
-                       f"percentage, or a batch figure (invented statistic)")
+        # A batch figure (win_rate, etc.) is a legitimate bare
+        # percentage.
+        if v in batch_pcts:
+            continue
+        # A bare percentage: allowed only as a rule, in context.
+        if v in rule_pcts:
+            window = b[max(0, m.start() - 40):m.end() + 40].lower()
+            ctx = _RULE_CONTEXT.get(v, ())
+            if not ctx or any(word in window for word in ctx):
+                continue
+        reasons.append(
+            f"percentage {m.group(0)} is not a trade percent or a "
+            f"rule cited in context (invented statistic)"
+        )
     return reasons
-
-
 def _check_no_cta(body: str) -> list[str]:
     if re.search(r"(?i)\b(?:email me|sign up|subscribe|free sample|no card|"
                  r"try .* free|click here)\b", body or ""):
