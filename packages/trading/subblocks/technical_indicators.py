@@ -111,7 +111,7 @@ async def generate(
     
     )
 
-    skeleton = await build_technical_skeleton(
+    skeleton, subject_trade = await build_technical_skeleton(
         session, org_id, coord, process_excerpt=process_excerpt or "",
     )
     user_prompt = PROMPT_TEMPLATE.format(
@@ -156,6 +156,35 @@ async def generate(
         form=None, tone=None, voice=None,
         skip_verify=True,
     )
+
+    # ── Render the subject trade's candlestick and insert it ──
+    if subject_trade:
+        try:
+            from packages.trading.charts.article_charts import (
+                render_trade_candlestick,
+            )
+            _url = await render_trade_candlestick(
+                session,
+                org_id=org_id,
+                symbol=str(subject_trade.get("symbol") or ""),
+                timeframe=str(subject_trade.get("timeframe") or "1h"),
+                entry=(float(subject_trade["entry"])
+                       if subject_trade.get("entry") is not None else None),
+                stop=(float(subject_trade["stop"])
+                      if subject_trade.get("stop") is not None else None),
+                target=(float(subject_trade["target"])
+                        if subject_trade.get("target") is not None else None),
+                exit_price=(float(subject_trade["exit"])
+                            if subject_trade.get("exit") is not None else None),
+                entry_time=subject_trade.get("traded_at"),
+            )
+            if _url:
+                post.body = post.body.rstrip() + f"\n\n![{subject_trade.get('symbol')} chart]({_url})\n"
+                log.info("technical_indicators.chart_inserted",
+                         symbol=subject_trade.get("symbol"), url=_url)
+        except Exception as _ce:
+            log.warning("technical_indicators.chart_failed",
+                        error=str(_ce)[:200])
 
     post_id = await persist_post(
         session,
