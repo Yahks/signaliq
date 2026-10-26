@@ -54,13 +54,35 @@ LENGTH. The article must be at least 500 words, aiming for
   Hook            60-90 words
   Name the problem 30-50 words
   Mechanism      100-150 words
+  Price action   80-120 words (see below)
   Diagnostics     5 items, 40-60 words each
   Fixes           5 items, 40-60 words each
   Reframe         15-25 words
 
+PRICE ACTION (required paragraph, after the mechanism). Describe
+the subject trade's entry candle and the bars around it, using
+ONLY the BARS and OVERLAY blocks. Cite the date and at least two
+OHLC values from the BARS block. State the 20-EMA and 50-EMA
+values and the relationship the OVERLAY block reports.
+
+  - If the OVERLAY state says "converging", the EMAs are within
+    0.5% and NO direction is supportable. Do NOT call it bullish,
+    bearish, a downtrend, or an uptrend. Say they are converging
+    and that the pair gives no trend signal at this bar.
+  - If the state says above/below, you may describe the bias, but
+    only in the direction the state reports.
+  - If the skeleton flags a clearance shortfall, name it: the
+    entry did not clear the prior 10-bar high by the required
+    0.5%.
+
 Every diagnostic cites a different trade or observation. Every
 fix is a before/after: what the trader used to do, what they do
 now, and the arithmetic in words.
+
+RULES. You may cite only percentages that appear in the RULES
+block (current process), a trade's percent of equity, or a batch
+figure. Do NOT invent a new threshold ("0.2% above the 50-EMA",
+"±0.05% neutral") — those rules do not exist in the process.
 
 Continuous prose. No headings, no bold labels, no bullets, no
 numbered lists — except the ONE diagnostics list, which uses

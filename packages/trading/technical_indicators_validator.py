@@ -135,7 +135,8 @@ def _skeleton_trade_percents(skeleton: str) -> set[str]:
 # they belong to. "0.5% clearance" is real; "0.5% of equity" is a
 # different claim and must match a trade's actual percent.
 _RULE_CONTEXT = {
-    "0.5": ("clearance", "range", "high", "low"),
+    "0.5": ("clearance", "range", "high", "low", "rule", "require",
+            "threshold", "move", "test", "minimum"),
 }
 
 
@@ -152,6 +153,13 @@ def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
     # where the skeleton says "-0.7318% of equity", or vice versa.
     trade_pcts = {v.lstrip("-") for v in _skeleton_trade_percents(skeleton)}
     batch_pcts = {n.lstrip("-") for n in _skeleton_batch_numbers(skeleton)}
+    # OVERLAY numbers (EMA values and the computed gap) are real
+    # figures the article may quote.
+    _ov = re.search(r"OVERLAY[^\n]*\n(.*?)(?:\n\s*\n|\Z)",
+                    skeleton or "", re.DOTALL)
+    if _ov:
+        for _n in re.findall(r"-?\d+(?:\.\d+)?", _ov.group(1)):
+            batch_pcts.add(_n.lstrip("-"))
     # The computed clearance is a real figure the article may cite.
     _clr = _skeleton_clearance(skeleton)
     if _clr is not None:
@@ -372,6 +380,22 @@ def _check_ema_claims(body: str, skeleton: str) -> list[str]:
                 f"{'below' if _claims_below else 'above'} the 50-EMA, "
                 f"but the skeleton computes them converging "
                 f"({ov['state']}) — no direction is supportable"
+            )
+        # A converging pair supports NO directional market read.
+        # The model has written "converging downtrend" and "bearish
+        # pressure" from a 0.18% gap. Reject the directional words
+        # when they sit near the EMA discussion.
+        for m in re.finditer(
+            r"(?:ema|overlay)[^.]{0,120}?"
+            r"\b(downtrend|uptrend|bearish|bullish|trend support|"
+            r"trend bias|downward bias|upward bias)\b",
+            b, re.IGNORECASE,
+        ):
+            reasons.append(
+                f"body calls the EMA state '{m.group(1)}' but the "
+                f"skeleton computes them converging "
+                f"({ov['state']}) — a converging pair supports no "
+                f"direction"
             )
     elif _claims_below and "above" in state:
         reasons.append(
