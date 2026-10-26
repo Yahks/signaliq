@@ -315,7 +315,18 @@ async def load_state_facts(
     The signal's own hit rate is not yet measurable — the signal has
     not been recorded as a time series.
     """
-    row = (await session.execute(sql_text("""
+    # A coordinate may name one state (FM_OPEC_CUT -> above_0_5mbpd)
+    # or the whole signal (FM_SPREAD -> ""). The second loads every
+    # state for that signal, so the article carries all four spread
+    # rules rather than one branch.
+    if state:
+        _where = "AND d.state = :st"
+        _params = {"o": org_id, "s": signal, "st": state}
+    else:
+        _where = ""
+        _params = {"o": org_id, "s": signal}
+
+    rows = (await session.execute(sql_text(f"""
         SELECT d.signal, d.state, d.direction, d.frequency,
                d.rule_definition, d.size_rule, d.exit_rule,
                d.point_in_time, d.holding_period, d.source_columns,
@@ -324,13 +335,14 @@ async def load_state_facts(
         LEFT JOIN fundamental_signal_composite c
           ON c.org_id = d.org_id AND c.signal = d.signal
          AND c.deleted_at IS NULL
-        WHERE d.org_id = :o AND d.signal = :s AND d.state = :st
+        WHERE d.org_id = :o AND d.signal = :s {_where}
           AND d.deleted_at IS NULL
-        LIMIT 1
-    """), {"o": org_id, "s": signal, "st": state})).mappings().first()
-    if not row:
+        ORDER BY d.state
+    """), _params)).mappings().all()
+    if not rows:
         return None
-    out = dict(row)
+    out = dict(rows[0])
+    out["states"] = [dict(r) for r in rows]
     try:
         from .signal_backtest import backtest_exit_structure
         bt = await backtest_exit_structure(session, org_id, "CL")
@@ -338,4 +350,54 @@ async def load_state_facts(
             out["baseline"] = bt
     except Exception as exc:
         log.warning("facts.baseline_failed", error=str(exc)[:120])
+
+    # The signal's own measured result — ONLY for the signal the
+    # backtest actually covers (spread). api_draw and opec_cut have
+    # no recorded release history, so the block is absent, not
+    # borrowed from the spread run.
+    if signal == "spread":
+        try:
+            agg = (await session.execute(sql_text("""
+                SELECT count(*) AS n,
+                       count(*) FILTER (WHERE result > 0) AS wins,
+                       count(*) FILTER (WHERE result < 0) AS losses,
+                       avg(result / (1000.0 * abs(entry - stop)))
+                         FILTER (WHERE result > 0) AS avg_win_r,
+                       avg(result / (1000.0 * abs(entry - stop)))
+                         FILTER (WHERE result < 0) AS avg_loss_r,
+                       avg(result / (1000.0 * abs(entry - stop))) AS expectancy_r,
+                       sum(result / (1000.0 * abs(entry - stop))) AS net_r
+                FROM trade_log
+                WHERE org_id = :o AND deleted_at IS NULL
+                  AND source = 'signal_backtest'
+            """), {"o": org_id})).mappings().first()
+            if agg and agg["n"] and int(agg["n"]) > 0:
+                # The most recent trade FOR THIS STATE — a
+                # backwardation_narrowing article must not be handed
+                # a backwardation_widening trade.
+                mr = (await session.execute(sql_text("""
+                    SELECT traded_at::date AS d, setup,
+                           round(entry::numeric, 4) AS entry,
+                           round(stop::numeric, 4) AS stop,
+                           round(exit::numeric, 4) AS exit,
+                           exit_reason,
+                           round((result / (1000.0 * abs(entry - stop)))::numeric, 3) AS r
+                    FROM trade_log
+                    WHERE org_id = :o AND deleted_at IS NULL
+                      AND source = 'signal_backtest'
+                      AND setup = :setup
+                    ORDER BY traded_at DESC LIMIT 1
+                """), {"o": org_id, "setup": f"spread {state}"})).mappings().first()
+                out["signal_backtest"] = {
+                    "n": int(agg["n"]),
+                    "wins": int(agg["wins"] or 0),
+                    "losses": int(agg["losses"] or 0),
+                    "avg_win_r": round(float(agg["avg_win_r"] or 0), 3),
+                    "avg_loss_r": round(float(agg["avg_loss_r"] or 0), 3),
+                    "expectancy_r": round(float(agg["expectancy_r"] or 0), 4),
+                    "net_r": round(float(agg["net_r"] or 0), 2),
+                    "most_recent": dict(mr) if mr else None,
+                }
+        except Exception as exc:
+            log.warning("facts.signal_backtest_failed", error=str(exc)[:120])
     return out

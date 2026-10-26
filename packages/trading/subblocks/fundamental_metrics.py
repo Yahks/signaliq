@@ -55,20 +55,25 @@ State every fact above: the direction (bullish or bearish), the
 rule, the frequency, the size rule, the exit rule, the
 point-in-time, and the holding period.
 
+THE TRADE. This article is about one specific trade, cited below.
+State its date, direction, entry, stop, exit, contracts, and the
+result in dollars and in R. Every one of those numbers is given;
+quote them, do not compute them. If the block says "(no
+signal-linked trade available yet)", say the signal has not yet
+produced a trade — do not invent one.
+
+{trade_block}
+
+DO NOT OPEN LIKE THESE. The first sentences of the most recent
+articles in this subblock are listed below. Your opening must be
+different — different first clause, different subject, different
+verb.
+
+{openings_block}
+
 Also state the EXIT-STRUCTURE BASELINE if present: on N random
 entries under these rules, the target was hit X% of the time, the
 stop Y%, and the time stop Z%, for an expectancy of W R per trade.
-
-If SIGNAL_BACKTEST.most_recent is a trade, one sentence in the
-fixes beat MUST state that trade aloud: its date, entry, stop,
-exit, exit reason, and R — copied exactly from the block. Without
-that sentence the article is incomplete. The chart is that trade's
-candles with entry, stop, and exit marked, and one sentence before
-[CHART: daily] must name that trade's date.
-
-If SIGNAL_BACKTEST.most_recent is null, say plainly that no
-backtested trade exists in this state, and describe the chart as
-the daily CL price chart only.
 
 State the sample too: n, wins, losses, the average R on wins and
 losses, and the net R. Compare the expectancy to the baseline and
@@ -151,6 +156,44 @@ and will be rejected.
 """
 
 
+async def _recent_openings(session, org_id: str, subblock_id: str,
+                           limit: int = 5) -> list[str]:
+    """The first sentence of the most recent articles for this
+    subblock. The prompt tells the model not to begin like these."""
+    rows = (await session.execute(sql_text("""
+        SELECT body FROM trading_posts
+        WHERE org_id = :o AND subblock_id = :s AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT :n
+    """), {"o": org_id, "s": subblock_id, "n": limit})).mappings().all()
+    out: list[str] = []
+    for r in rows:
+        body = (r["body"] or "").strip()
+        if not body:
+            continue
+        first = body.split("\n\n", 1)[0].strip().split(". ")[0].strip()
+        if first:
+            out.append(first[:160])
+    return out
+
+
+async def _pick_unused_signal_trade(
+    session, org_id: str, signal: str,
+) -> dict | None:
+    """A trade from this signal that has not yet been the subject
+    of an article. Each article is about a different trade."""
+    row = (await session.execute(sql_text("""
+        SELECT id, symbol, instrument, direction, traded_at, setup,
+               entry, stop, exit, exit_reason, contracts, result,
+               atr_at_entry, signal
+        FROM trade_log
+        WHERE org_id = :o AND deleted_at IS NULL
+          AND signal = :sig
+          AND used_in_article_id IS NULL
+        ORDER BY traded_at LIMIT 1
+    """), {"o": org_id, "sig": signal})).mappings().first()
+    return dict(row) if row else None
+
+
 async def generate(
     session: AsyncSession,
     *,
@@ -221,6 +264,12 @@ async def generate(
     from ..registry import FM_COORDINATE_STATE
     from ..fundamental_state_drafter import load_state_facts
     _coord_state = FM_COORDINATE_STATE.get(coord["coord"])
+    # Conceptual coordinates (FM_SPREAD, FM1-FM8) carry a one-
+    # paragraph trader section and no backtest/baseline. The 650
+    # floor is unreachable without padding for those, so they
+    # target a shorter piece. Spread states keep the full floor.
+    if _coord_state is None:
+        target_words = min(target_words, 500)
     _facts = None
     if _coord_state:
         _sig, _state = _coord_state
@@ -285,24 +334,9 @@ async def generate(
                 f"  expectancy_r: {_sb.get('expectancy_r')}\n"
                 f"  net_r: {_sb.get('net_r')}"
             )
-            _mr = _sb.get("most_recent")
-            if _mr:
-                _facts_block_parts.append(
-                    "SIGNAL_BACKTEST.most_recent (a trade — you MUST "
-                    "cite it):\n"
-                    f"  date: {_mr.get('d')}\n"
-                    f"  setup: {_mr.get('setup')}\n"
-                    f"  entry: {_mr.get('entry')}\n"
-                    f"  stop: {_mr.get('stop')}\n"
-                    f"  exit: {_mr.get('exit')}\n"
-                    f"  exit_reason: {_mr.get('exit_reason')}\n"
-                    f"  r: {_mr.get('r')}"
-                )
-            else:
-                _facts_block_parts.append(
-                    "SIGNAL_BACKTEST.most_recent: null "
-                    "(no trade in this state — say so)"
-                )
+            # The trade the article is about is _trade (the picked
+            # unused trade), not most_recent. The trade block below
+            # carries it. facts_block carries the signal summary only.
         else:
             _facts_block_parts.append(
                 "SIGNAL_BACKTEST: absent (no backtest for this signal)"
@@ -329,6 +363,41 @@ async def generate(
             )
     _facts_block = "\n\n".join(_facts_block_parts) if _facts_block_parts else ""
 
+    # A specific trade, and the openings of recent articles. Both
+    # are what keep two articles on the same coordinate distinct.
+    _openings = await _recent_openings(session, org_id, subblock["id"])
+    _trade = None
+    if _coord_state:
+        _sig, _st = _coord_state
+        _trade = await _pick_unused_signal_trade(
+            session, org_id, f"{_sig}/{_st}" if _st else _sig,
+        )
+
+    from ..signal_math import trade_math
+    if _trade:
+        _tm = trade_math(dict(_trade), 1_000_000.0, 0.015)
+        _trade_block = "\n".join([
+            f"  date: {_trade.get('traded_at')}",
+            f"  symbol: {_trade.get('symbol')}",
+            f"  direction: {_trade.get('direction')}",
+            f"  entry: {_tm['entry']}",
+            f"  stop: {_tm['stop']}",
+            f"  exit: {_tm['exit']}",
+            f"  exit_reason: {_trade.get('exit_reason') or 'n/a'}",
+            f"  contracts: {_tm['contracts']}",
+            f"  stop_distance_points: {_tm['stop_distance_points']}",
+            f"  stop_atr_multiple: {_tm['stop_atr_multiple']}",
+            f"  planned_risk_dollars: {_tm['planned_risk_dollars']}",
+            f"  realized_pnl_dollars: {_tm['realized_pnl_dollars']}",
+            f"  r_multiple: {_tm['r_multiple']}",
+            f"  percent_of_equity: {_tm['percent_of_equity']}",
+        ])
+    else:
+        _trade_block = "  (no signal-linked trade available yet)"
+
+    _openings_block = "\n".join(f"  - {o}" for o in _openings) \
+                      or "  (none yet)"
+
     # The validator takes state-qualified directions: "signal/state".
     _directions = {
         f"{r['signal']}/{r['state']}": r["direction"] for r in _states
@@ -347,6 +416,8 @@ async def generate(
         trader_section=trader_section,
         signal_directions=_dir_lines,
         facts_block=_facts_block,
+        trade_block=_trade_block,
+        openings_block=_openings_block,
     )
 
     post = await call_llm_json_verified(
@@ -386,10 +457,26 @@ async def generate(
     from packages.trading.fundamental_metrics_validator import (
         validate_fundamental_metrics,
     )
+    # The validator's citation check reads
+    # facts["signal_backtest"]["most_recent"]. The article is about
+    # _trade, so point that key at _trade for the check. Shallow
+    # copy — the real _facts is untouched.
+    _facts_for_check = dict(_facts) if _facts else {}
+    if _trade:
+        _sb = dict(_facts_for_check.get("signal_backtest") or {})
+        _sb["most_recent"] = {
+            "d": str(_trade.get("traded_at") or ""),
+            "entry": _trade.get("entry"),
+            "stop": _trade.get("stop"),
+            "exit": _trade.get("exit"),
+            "exit_reason": _trade.get("exit_reason"),
+        }
+        _facts_for_check["signal_backtest"] = _sb
     _reasons = validate_fundamental_metrics(
         post.body, trader_section,
         directions=_directions, signals=_signal_words,
-        facts=_facts,
+        facts=_facts_for_check,
+        is_conceptual=(_coord_state is None),
     )
     if _reasons:
         log.warning("fundamental_metrics.validator_rejected",
@@ -413,10 +500,9 @@ async def generate(
         from packages.db.tenant import set_current_org as _set_org
 
         _sym = "CL"
-        # The chart shows the most-recent backtest trade, so the
-        # image and the prose describe the same entry, stop, and
-        # exit. Without a trade the chart is decoration.
-        _mr = (_facts or {}).get("signal_backtest", {}).get("most_recent")
+        # The chart shows the trade the article is about (the
+        # picked unused trade), so the image and the prose
+        # describe the same entry, stop, and exit.
         async with _gsf()() as _chart_s:
             await _set_org(_chart_s, org_id)
             _candle_url = await render_trade_candlestick(
@@ -424,10 +510,10 @@ async def generate(
                 org_id=org_id,
                 symbol=_sym,
                 timeframe="1d",
-                entry=(float(_mr["entry"]) if _mr else None),
-                stop=(float(_mr["stop"]) if _mr else None),
-                exit_price=(float(_mr["exit"]) if _mr else None),
-                entry_time=(_mr["d"] if _mr else None),
+                entry=(float(_trade["entry"]) if _trade else None),
+                stop=(float(_trade["stop"]) if _trade else None),
+                exit_price=(float(_trade["exit"]) if _trade else None),
+                entry_time=(_trade["traded_at"] if _trade else None),
             )
         if _candle_url:
             import re as _re
@@ -466,6 +552,15 @@ async def generate(
         symbols=["CL"],
     )
     await session.commit()
+
+    # Mark the trade used so the next article on this coordinate
+    # picks a different one. Without this the unused-trade query
+    # returns the same row forever and two articles cite one trade.
+    if _trade:
+        await session.execute(sql_text("""
+            UPDATE trade_log SET used_in_article_id = :p WHERE id = :t
+        """), {"p": post_id, "t": _trade["id"]})
+        await session.commit()
 
     log.info(
         "fundamental_metrics.persisted",

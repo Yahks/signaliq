@@ -142,6 +142,8 @@ async def backtest_exit_structure(
         "avg_win_r": round(avg_win_r, 3),
         "avg_loss_r": round(-avg_loss_r, 3),
         "breakeven_hit_rate_pct": round(breakeven * 100.0, 1),
+        "payoff_ratio": round(win_r / avg_loss_r, 4) if avg_loss_r > 0 else 0.0,
+        "edge_gap_pp": round((hit_rate - breakeven) * 100.0, 1),
         "first_bar": bars[0]["trade_date"].isoformat(),
         "last_bar": bars[-1]["trade_date"].isoformat(),
     }

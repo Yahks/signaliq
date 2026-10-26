@@ -13,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.logging import get_logger
 
-from ..ctas import pick_cta
 from ..editorial import compose_system_prompt
 from ..registry import pick_coordinate, covered_dimensions
 from ..registers._selector import pick_register
 from ..trader_process import get_process_excerpt
+from ..technical_indicators_skeleton import build_technical_skeleton
 from .base import call_llm_json_verified, persist_post
 
 log = get_logger(__name__)
@@ -36,6 +36,12 @@ removing a specific named error.
 {process_excerpt}
 --- END PROCESS DOCUMENT ---
 
+STRUCTURED SKELETON — computed by Python. Every trade, date, and
+dollar figure you cite MUST come from this block. Do not invent a
+trade.
+
+{skeleton}
+
 Write the piece in the register selected by the system prompt.
 
 FOCUS. Name the specific indicator. Say what it measures, why
@@ -51,8 +57,6 @@ LENGTH. The article must be at least 500 words, aiming for
   Diagnostics     5 items, 40-60 words each
   Fixes           5 items, 40-60 words each
   Reframe         15-25 words
-  Checklist       60-90 words
-  CTA             30-50 words
 
 Every diagnostic cites a different trade or observation. Every
 fix is a before/after: what the trader used to do, what they do
@@ -62,9 +66,15 @@ Continuous prose. No headings, no bold labels, no bullets, no
 numbered lists — except the ONE diagnostics list, which uses
 '-' at the start of each item.
 
-End with this CTA, exactly:
+Do NOT end with a CTA, a URL, an email address, or a marketing
+line. End on the reframe.
 
-{cta_text}
+EVIDENCE RULE. Every number you write must come from the STRUCTURED
+SKELETON. Do not claim a process statistic (a percentage
+improvement, a variance reduction, a win-rate change) that is not
+in the BATCH block. For each diagnostic, explain what the trade's
+own numbers show — do not invent a cause (an earnings spike, a news
+event) that the skeleton does not state.
 """
 
 
@@ -96,18 +106,20 @@ async def generate(
         subblock_slug=slug,
         covered_dimensions=covered,
     )
-    cta_text = pick_cta(coord["dimension_keywords"], post_index=tier_index)
     process_excerpt = await get_process_excerpt(
         session, org_id, coord["dimension_id"], instrument_type="stock",
     
     )
 
+    skeleton = await build_technical_skeleton(
+        session, org_id, coord, process_excerpt=process_excerpt or "",
+    )
     user_prompt = PROMPT_TEMPLATE.format(
         dimension_label=coord["dimension_label"],
         angle_label=coord["angle_label"],
         angle_framing=coord["angle_framing"],
         process_excerpt=process_excerpt or "(no process excerpt)",
-        cta_text=cta_text,
+        skeleton=skeleton,
     )
 
     register = await pick_register(
@@ -137,8 +149,8 @@ async def generate(
             "dimension_label": coord["dimension_label"],
             "angle_label": coord["angle_label"],
             "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
             "process_excerpt": process_excerpt,
+            "skeleton": skeleton,
         },
         target_words=target_words,
         form=None, tone=None, voice=None,
@@ -156,7 +168,6 @@ async def generate(
             "dimension_label": coord["dimension_label"],
             "angle_label": coord["angle_label"],
             "angle_framing": coord["angle_framing"],
-            "cta_text": cta_text,
         },
         source_urls=[], symbols=[],
     )

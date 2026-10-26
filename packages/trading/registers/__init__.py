@@ -255,6 +255,27 @@ REGISTERS: dict[str, str] = {
         "  Title: one line. Name the regime or the condition. No question, no forecast, no price target.\n"
         "  Evidence rule. CONDITIONS: every number in the piece must appear in the payload's market observation block or the trader's process document. Do not invent a statistic. Do not recycle a number from a prior article. MECHANISMS: state a named mechanism (volatility clustering, liquidity-participation, common-factor dominance, gap continuation). Do not attribute a mechanism to a paper unless the paper is in the payload."
     ),
+    "fundamental-metrics": (
+        "Register: fundamental-metrics (the systematic trader reading a fundamental signal — OPEC cuts, API inventory draws, spot-futures spread — as an input to a system, never as a prediction).\n"
+        "  Core principle: describe the signal, the baseline it must beat, and the backtest that tests it. Every claim about the signal is conditional. A fundamental event is a bias, not a guarantee. You are reporting what the data says about a rule, not what the market will do.\n"
+        "  Reader: retail systematic traders. They already run rules and track their own numbers. Do NOT define R, expectancy, win rate, backtest, OPEC, EIA, API, backwardation, contango, or spread. A definition signals 'this isn't for you.'\n"
+        "  Voice: informed-peer. A practitioner explaining a rule and its evidence to a smart peer. Third person and neutral. Present tense for the current state. 'I' only when quoting the trader's own process document, and only in the form the document uses.\n"
+        "\n"
+        "  The beats. Continuous prose. Do NOT print beat names. Do NOT write 'Hook,' 'Signal,' 'Baseline,' 'Backtest,' 'Trade,' or any bold label at a line start.\n"
+        "    Hook — the observation that makes the signal worth testing. What the signal says, and why it might not work. One or two sentences.\n"
+        "    Signal — what the rule reads and what it does. The input, the threshold, the direction, the frequency. Drawn ONLY from the signal directions and the trader's process document. Do not add a threshold the payload does not carry.\n"
+        "    Baseline — the exit-structure baseline. On N random entries under these rules, the target was hit X%, the stop Y%, the time stop Z%, for an expectancy of W R per trade. State the breakeven hit rate the R:R requires and say whether the baseline is above or below it. If the baseline is absent, say so — do not invent a hit rate.\n"
+        "    Backtest — the signal's own sample. n, wins, losses, the average R on wins and losses, the net R. Compare the expectancy to the baseline and say plainly whether the signal beats it. If the sample is small, say the sample is small. Do not round a loss into a win.\n"
+        "    Trade — if most_recent is a trade, one sentence in this beat MUST state it aloud in the exact form: 'The most recent trade in this state was [date], entered at [entry], stopped at [stop], exited at [exit] on [exit_reason] for [R] R.' Copy the six values from the block with the same digits. If most_recent is null, say plainly that no backtested trade exists in this state — do not invent one and do not borrow a trade from another state.\n"
+        "    Composite — what the composite state means for the rule. warning: the signal reduces size, it does not block entry. veto: the signal blocks entry when it fires. clear: the signal neither reduces nor blocks. State the state the payload names, and only that state.\n"
+        "    Reframe — one sentence that makes a distinction, not a summary. The form is 'X isn't Y, it's Z.' A fundamental event doesn't predict price; it shifts a bias that the backtest then has to defend.\n"
+        "  There is NO checklist beat and NO CTA beat for fundamental-metrics. The article ends on the reframe. No checklist, no 'Confirm/Verify' list, no CTA, no URL, no marketing line.\n"
+        "  Chart. One [CHART: daily] tag. The chart shows daily CL price. If most_recent is a trade, one sentence before the tag must name that trade's date and say the chart marks its entry, stop, and exit. If most_recent is null, describe the chart as the daily CL price chart only — do not say it shows a trade.\n"
+        "  Safety — never predict. 'A cut above 0.5 mbpd nudges the bias toward longs,' not 'prices will rise.' Never give a level, a target, or a price. Never say 'consider,' 'watch,' 'now is the time.' Never claim a signal hit rate the payload does not carry. Never attribute a claim to a source that is not in the payload.\n"
+        "  Evidence rule. CONDITIONS: every number in the piece must appear in the signal_backtest, exit_structure_baseline, or trader process document. Do not invent a statistic. Do not recycle a number from a prior article. SIGNAL: state only the input, threshold, and direction the payload carries. Do not extend with additional fundamental claims.\n"
+        "  Title: one line. Name the signal or the condition. No question, no forecast, no price target.\n"
+        "  PARAGRAPHS. Every paragraph must be at least three sentences. Short bursts read as notes, not prose."
+    ),
     "market-analysis": (
         "Register: market-analysis (the systematic trader analyzing a regime — describing what it is, why it exists, what it implies, and how to recognize when it changes. Never a prediction).\n"
         "  Core principle: describe conditions, not predictions. Explain mechanisms, not opportunities. Tie everything to process, not to trades. You are not forecasting. You are reporting the environment and its implications for a systematic process.\n"
@@ -1439,9 +1460,9 @@ SUBBLOCK_TIERS: dict[str, dict[str, list[str]]] = {
         "tier_3": ["market-structure"],
     },
     "fundamental_metrics": {
-        "tier_1": ["market-regime"],
-        "tier_2": ["market-regime"],
-        "tier_3": ["market-regime"],
+        "tier_1": ["fundamental-metrics"],
+        "tier_2": ["fundamental-metrics"],
+        "tier_3": ["fundamental-metrics"],
     },
     "movers": {
         "tier_1": ["market-daily"],

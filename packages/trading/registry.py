@@ -47,7 +47,7 @@ DIMENSIONS: dict[str, dict[str, str]] = {
     "D5":  {"label": "rolling",                  "keywords": "tool review"},
     "D6":  {"label": "holding periods",          "keywords": "style"},
     "D7":  {"label": "multi-strategy blending",  "keywords": "systematic"},
-    "D8":  {"label": "the human overlay",        "keywords": "psychology"},
+    "D8":  {"label": "the chart overlay",        "keywords": "indicators"},
     "D9":  {"label": "research-to-rules",        "keywords": "methodology"},
     "D10": {"label": "stocks vs options",        "keywords": "tool review"},
     "D11": {"label": "universes",                "keywords": "data quality"},
@@ -309,17 +309,25 @@ async def covered_dimensions(session, org_id: str) -> set[str]:
 #
 # Six states per cycle. No wrap: a new process save opens a new
 # cycle.
+# Three coordinates, one per signal. The four spread states are one
+# mechanism — widening/narrowing in backwardation/contango — and the
+# article describes the rule across all four rather than one branch,
+# so the spread is a single coordinate, not four.
 FUNDAMENTAL_METRICS_COORDINATES: dict[str, str] = {
     "FM_OPEC_CUT": "an OPEC cut above 0.5 million barrels per day",
     "FM_API_DRAW": "an API inventory draw above 5 million barrels",
-    "FM_BACKWARDATION_WIDENING":
-        "backwardation widening: spot above futures and the gap growing",
-    "FM_BACKWARDATION_NARROWING":
-        "backwardation narrowing toward contango: the bullish bias eroding",
-    "FM_CONTANGO_WIDENING":
-        "contango widening: futures above spot and the gap growing",
-    "FM_CONTANGO_NARROWING":
-        "contango narrowing toward backwardation: the bearish bias eroding",
+    "FM_SPREAD": "the spot-price-vs-futures spread: backwardation "
+                 "bullish, contango bearish, and the change (widening "
+                 "or narrowing) that decides the veto",
+}
+
+# Which (signal, state) each coordinate refers to. The spread
+# coordinate is not one state — it covers all four — so the state is
+# empty and the prompt carries the whole spread rule.
+FM_COORDINATE_STATE: dict[str, tuple[str, str]] = {
+    "FM_OPEC_CUT": ("opec_cut", "above_0_5mbpd"),
+    "FM_API_DRAW": ("api_draw", "above_5mb"),
+    "FM_SPREAD": ("spread", ""),
 }
 
 # Which (signal, state) each coordinate refers to. The prompt and the
@@ -373,16 +381,33 @@ async def pick_fm_coordinate(
             "oid": org_id, "sid": subblock_id, "since": last_save,
         })).all()
 
-    used = {r[0] for r in rows if r[0]}
-    for code, label in FUNDAMENTAL_METRICS_COORDINATES.items():
-        if code in used:
-            continue
-        log.info("registry.picked_fm", coord=code, label=label)
-        return {"coord": code, "label": label}
-
-    log.info("registry.fm_exhausted",
-             total=len(FUNDAMENTAL_METRICS_COORDINATES))
-    return None
+    # The exhausted state is removed: the subblock cycles
+    # permanently. Pick the coordinate generated longest ago so
+    # every state is refreshed before any repeats.
+    from datetime import datetime, timezone
+    _last: dict[str, datetime] = {}
+    _rows_ts = (await session.execute(sql_text("""
+        SELECT source_payload->>'coordinate' AS coord,
+               max(created_at) AS last_at
+        FROM trading_posts
+        WHERE org_id = :oid
+          AND subblock_id = :sid
+          AND deleted_at IS NULL
+          AND source_payload->>'coordinate' LIKE 'FM%'
+        GROUP BY source_payload->>'coordinate'
+    """), {"oid": org_id, "sid": subblock_id})).all()
+    for coord, last_at in _rows_ts:
+        if coord:
+            _last[coord] = last_at
+    _epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    _candidates = sorted(
+        FUNDAMENTAL_METRICS_COORDINATES.items(),
+        key=lambda kv: _last.get(kv[0], _epoch),
+    )
+    code, label = _candidates[0]
+    log.info("registry.picked_fm", coord=code, label=label,
+             last_at=str(_last.get(code)))
+    return {"coord": code, "label": label}
 
 # Which dimensions each process-based subblock may use. The concept-
 # explainer four use all 14; the practitioner-process four use only

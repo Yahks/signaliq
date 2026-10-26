@@ -70,11 +70,15 @@ BEAT SHAPE — nine beats, in order. Do NOT skip any.
 2. THE RULE. What setup fires. Entry condition, stop placement,
    target. In exact terms, from the STRATEGY block.
 
-3. THE SAMPLE. How many trades. Over what period. Do NOT say "I
-   won some and lost some." State the number. Name the instruments
-   the sample touches. Which symbols appear most often. Which
-   timeframes. Are there clusters — many trades from one sector,
-   many from one month, many from one symbol. Name them.
+3. THE SAMPLE. How many trades. Over what period. State the number.
+   Then use the SYMBOL FREQUENCY, TIMEFRAME DISTRIBUTION, and
+   MONTHLY DISTRIBUTION sections. Name the top symbols by count
+   (not by win rate — the model's previous claim of "tech cluster"
+   was wrong). Name which timeframe dominates. Name which month had
+   the most trades and which had the best and worst win rates. If
+   the distributions show a real finding — e.g., "the 1-hour chart
+   bleeds at 32.9% win rate while the daily chart wins 49.5%" —
+   state it. That is a finding. Give the numbers.
 
 4. THE MATH. Win rate, average win, average loss, payoff ratio,
    expectancy. Show the arithmetic. e.g., "42.3% win rate times

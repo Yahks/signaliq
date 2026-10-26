@@ -59,6 +59,15 @@ A claim is NOT:
     argues", "the reading forced me to rethink"). Do NOT
     flag these.
 
+  - A statement of absence from SOURCE DATA. A sentence
+    saying the source does not provide a value — "no
+    exit-structure baseline is provided", "the backtest
+    block contains no sampled trades in this state" — is
+    a claim about the source, not about the market. Check
+    it against the source's keys, not against the market.
+    Do NOT flag it when the corresponding field is absent
+    or null in SOURCE DATA.
+
   - A roadmap sentence. A sentence that announces the
     structure of what follows ("The regime changes three
     core aspects", "There are three observations", "Here
@@ -84,6 +93,12 @@ A claim is SUPPORTED if:
     a sourced value.
   - It draws on a mechanism that is named and cited in the
     SOURCE DATA's RESEARCH SOURCES block.
+  - It states that a field is missing, and that field is in
+    fact absent or null in SOURCE DATA. "No baseline is
+    provided" is SUPPORTED when SOURCE DATA has no
+    baseline. "No trade exists in this state" is SUPPORTED
+    when SOURCE DATA's most_recent is null. Do NOT flag a
+    correct absence statement.
   - It states that a historical comparison is unavailable, or
     that the source provides no regime-duration entry for this
     metric. This is a register-permitted disclaimer, not a
@@ -112,6 +127,18 @@ A claim is SUPPORTED if:
     article says "the fix reduced losses" or "the win rate
     rose", the source data must show the post-fix numbers.
     Flag only the second kind.
+  - Arithmetic on numbers from the distribution_block is
+    SUPPORTED. If the article shows the multiplication or
+    subtraction that derives one source number from two other
+    source numbers, that is arithmetic, not invention. Do NOT
+    flag a math step that is derivable from the block.
+  - A sentence that describes what LOSING trades have in
+    common, drawn from the sample, is a failure-mode
+    description. If the article says "losses cluster when
+    breakouts reverse quickly" or "the prior five-bar low sits
+    close to entry in the losers", that is describing the
+    sample, not inventing a market claim. Do NOT flag
+    failure-mode descriptions that reference the sample.
 
 MECHANISM SENTENCES — DO NOT FLAG.
 

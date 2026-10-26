@@ -91,3 +91,52 @@ async def record_unavailable(session: AsyncSession, org_id: str,
     await _upsert(session, org_id, date.today(), signal, "unavailable",
                   None, why)
     await session.commit()
+
+
+async def backfill_spread_history(
+    session: AsyncSession, org_id: str,
+) -> dict[str, Any]:
+    """Rebuild the spread series from stored CL bars.
+
+    Both contracts have daily history. For each date where both
+    have a close, spread = front - second; the state is the level
+    (backwardation / contango) plus the change against the prior
+    day (widening / narrowing / flat).
+    """
+    from packages.ingestion.sources.market_data import fetch_bars
+
+    front = await fetch_bars("CL=F")
+    second = None
+    for sym in ("CLF27.NYM", "CLG27.NYM", "CLH27.NYM"):
+        b = await fetch_bars(sym)
+        if b and front and b[0]["close"] != front[0]["close"]:
+            second = b
+            break
+    if not front or not second:
+        return {"status": "no second month"}
+
+    fmap = {b["date"]: float(b["close"]) for b in front}
+    smap = {b["date"]: float(b["close"]) for b in second}
+    dates = sorted(set(fmap) & set(smap))
+
+    prev = None
+    written = 0
+    for d in dates:
+        spread = round(fmap[d] - smap[d], 4)
+        level = "backwardation" if spread > 0 else "contango"
+        if prev is None or spread == prev:
+            state = f"{level}_flat"
+        elif spread > prev:
+            state = f"{level}_widening"
+        else:
+            state = f"{level}_narrowing"
+        from datetime import date as _date
+        y, m, dd = (int(x) for x in d.split("-"))
+        await _upsert(session, org_id, _date(y, m, dd), "spread",
+                      state, spread, f"CL=F - {second[0].get('symbol','CL2')}")
+        prev = spread
+        written += 1
+    await session.commit()
+    return {"status": "ok", "rows": written,
+            "first": dates[0] if dates else None,
+            "last": dates[-1] if dates else None}

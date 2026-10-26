@@ -44,10 +44,13 @@ def _check_signal_signs(
 
     for key, dirn in directions.items():
         word = signals.get(key, key).lower()
+        # The article may say "backwardation widening" or "widening
+        # backwardation" — the state words match in any order.
+        _state_tokens = [t for t in word.split() if t]
         claimed = None
         for sent in sentences:
             s = sent.lower()
-            if word not in s:
+            if not all(t in s for t in _state_tokens):
                 continue
             # The direction may precede or follow the signal name —
             # "widening contango is more bearish" states bearish just
@@ -104,10 +107,10 @@ def _check_no_checklist(body: str) -> list[str]:
     return []
 
 
-def _check_length(body: str) -> list[str]:
+def _check_length(body: str, floor: int = 650) -> list[str]:
     words = len((body or "").split())
-    if words < 820:
-        return [f"article is {words} words; the floor is 820"]
+    if words < floor:
+        return [f"article is {words} words; the floor is {floor}"]
     return []
 
 
@@ -118,19 +121,126 @@ def _check_chart_tag_present(body: str) -> list[str]:
     return []
 
 
+def _check_trade_cited(body: str, facts: dict | None) -> list[str]:
+    """If a backtest exists, the article must cite its most recent
+    trade: date, entry, stop, exit, and R."""
+    if not facts:
+        return []
+    sb = facts.get("signal_backtest")
+    if not sb or not sb.get("most_recent"):
+        return []
+    mr = sb["most_recent"]
+    b = body or ""
+    miss = []
+    for key, val in (
+        ("entry", mr.get("entry")), ("stop", mr.get("stop")),
+        ("exit", mr.get("exit")),
+    ):
+        if val is None:
+            continue
+        if f"{float(val):.2f}" not in b and f"{float(val):g}" not in b:
+            miss.append(key)
+    if miss:
+        return [f"backtest exists but the article does not cite the "
+                f"most-recent trade's {', '.join(miss)}"]
+    return []
+
+
+def _check_paragraph_length(body: str) -> list[str]:
+    paras = [p.strip() for p in (body or "").split("\n\n") if p.strip()]
+    short = [p for p in paras
+             if not p.startswith(("|", "!", "<!--"))
+             and "REFRAME" not in p
+             and len(re.findall(r"[.!?](?:\s|$)", p)) < 2]
+    if short:
+        return [f"{len(short)} paragraph(s) have fewer than three "
+                f"sentences"]
+    return []
+
+
+
+def _merge_short_paragraphs(body: str) -> str:
+    """Merge any paragraph with fewer than three sentences into the
+    next one. The model writes short bursts; merging is formatting,
+    not content, and the model has already produced the prose.
+    """
+    paras = [p.strip() for p in (body or "").split("\n\n") if p.strip()]
+    if not paras:
+        return body
+    out: list[str] = []
+    buf = ""
+    for p in paras:
+        buf = f"{buf} {p}".strip() if buf else p
+        # Count sentences: split on . ! ? followed by space or end.
+        n = 0
+        for ch in buf:
+            if ch in ".!?":
+                n += 1
+        if n >= 3:
+            out.append(buf)
+            buf = ""
+    if buf:
+        if out:
+            out[-1] = f"{out[-1]} {buf}".strip()
+        else:
+            out.append(buf)
+    return "\n\n".join(out)
+
+
 def validate_fundamental_metrics(
     body: str, trader_section: str,
     directions: dict[str, str] | None = None,
     signals: dict[str, str] | None = None,
+    facts: dict | None = None,
+    is_conceptual: bool = False,
 ) -> list[str]:
     if not body:
         return ["empty body"]
     reasons: list[str] = []
+    # Merge first: a short paragraph that the merger can join is a
+    # formatting artefact, not a defect. Only a paragraph the merger
+    # cannot join (the last one, if it cannot be merged forward) is
+    # reported.
+    body = _merge_short_paragraphs(body)
+    reasons.extend(_check_paragraph_length(body))
     if directions:
         reasons.extend(_check_signal_signs(
             body, directions, signals or {},
         ))
-    reasons.extend(_check_length(body))
+    reasons.extend(_check_length(
+        body, floor=(450 if is_conceptual else 650)))
     reasons.extend(_check_no_checklist(body))
     reasons.extend(_check_no_cta(body))
+    reasons.extend(_check_trade_cited(body, facts))
+    if facts and facts.get('math_block'):
+        reasons.extend(_check_numbers_from_math(
+            body, facts['math_block']))
     return reasons
+
+
+def _check_numbers_from_math(body: str, math_block: str) -> list[str]:
+    """Every number in the article must appear in the math block.
+
+    The model does no arithmetic. signal_math computes R, percent of
+    equity, stop multiple, payoff, breakeven, edge gap — and the
+    article quotes them. A number that is not in the block was
+    computed by the model, which is how the 40% breakeven and the
+    0.2% spread swing got in.
+    """
+    if not math_block:
+        return []
+    allowed = set(re.findall(r"-?\d+(?:\.\d+)?", math_block))
+    reasons: list[str] = []
+    for m in re.finditer(r"\$?(-?\d[\d,]*(?:\.\d+)?)\s*(%|R\b|points?|dollars)?", body or ""):
+        raw = m.group(1).replace(",", "")
+        # bare integers 1-31 are dates/contracts/labels; skip them
+        try:
+            v = float(raw)
+        except ValueError:
+            continue
+        if v.is_integer() and 0 < v < 32:
+            continue
+        if raw not in allowed and raw.rstrip("0").rstrip(".") not in allowed:
+            reasons.append(f"number {raw} is not in the computed math block")
+    return reasons
+

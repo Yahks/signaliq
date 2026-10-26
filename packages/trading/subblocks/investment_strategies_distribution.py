@@ -57,6 +57,14 @@ def _fmt_money(v: Any) -> str:
     return f"{sign}${abs(n):,.2f}"
 
 
+def _px(v: Any) -> str:
+    """Format a price to 2 decimals."""
+    try:
+        return f"{float(v):.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _fmt_row(r: Any) -> str:
     """Render one trade row as a compact readable paragraph."""
     parts = []
@@ -70,15 +78,18 @@ def _fmt_row(r: Any) -> str:
     stop = r.get("stop")
     target = r.get("target")
     result = r.get("result")
+    exit_reason = r.get("exit_reason")
     head = " ".join(parts)
     if direction and entry is not None:
-        head += f" {direction} at {entry}"
+        head += f" {direction} at {_px(entry)}"
     if exit_ is not None:
-        head += f", exit {exit_}"
+        head += f", exit {_px(exit_)}"
     if stop is not None:
-        head += f", stop {stop}"
+        head += f", stop {_px(stop)}"
     if target is not None:
-        head += f", target {target}"
+        head += f", target {_px(target)}"
+    if exit_reason:
+        head += f" ({exit_reason})"
     if result is not None:
         head += f" → {_fmt_money(result)}"
     traded = r.get("traded_at")
@@ -133,6 +144,47 @@ async def build_distribution_block(
     win_rate = wins / n if n else 0.0
     payoff = abs(avg_win / avg_loss) if avg_loss else 0.0
     expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss
+
+    # ── Symbol frequency ─────────────────────────────────────────
+    symbol_freq = (await session.execute(sql_text(f"""
+        SELECT symbol, COUNT(*) AS n,
+               COUNT(*) FILTER (WHERE result > 0) AS wins
+        FROM trade_log
+        WHERE org_id = :oid
+          AND deleted_at IS NULL
+          AND result IS NOT NULL
+          AND ({_STRATEGY_CASE}) = :strat
+        GROUP BY symbol
+        ORDER BY n DESC
+        LIMIT 8
+    """), {"oid": org_id, "strat": strategy})).mappings().all()
+
+    # ── Timeframe distribution ───────────────────────────────────
+    tf_freq = (await session.execute(sql_text(f"""
+        SELECT timeframe, COUNT(*) AS n,
+               COUNT(*) FILTER (WHERE result > 0) AS wins
+        FROM trade_log
+        WHERE org_id = :oid
+          AND deleted_at IS NULL
+          AND result IS NOT NULL
+          AND ({_STRATEGY_CASE}) = :strat
+        GROUP BY timeframe
+        ORDER BY n DESC
+    """), {"oid": org_id, "strat": strategy})).mappings().all()
+
+    # ── Monthly distribution ─────────────────────────────────────
+    month_freq = (await session.execute(sql_text(f"""
+        SELECT to_char(traded_at, 'YYYY-MM') AS month,
+               COUNT(*) AS n,
+               COUNT(*) FILTER (WHERE result > 0) AS wins
+        FROM trade_log
+        WHERE org_id = :oid
+          AND deleted_at IS NULL
+          AND result IS NOT NULL
+          AND ({_STRATEGY_CASE}) = :strat
+        GROUP BY month
+        ORDER BY month
+    """), {"oid": org_id, "strat": strategy})).mappings().all()
 
     recent = (await session.execute(sql_text(f"""
         SELECT symbol, timeframe, direction, entry, stop, target,
@@ -189,6 +241,39 @@ async def build_distribution_block(
     lines.append(f"Expectancy per trade: {_fmt_money(expectancy)}")
     lines.append(f"Net P&L over the sample: {_fmt_money(net_pnl)}")
     lines.append("")
+
+    # Symbol frequency — this is the data the model needs to name
+    # clusters, dominant symbols, and sector concentration honestly.
+    lines.append("--- SYMBOL FREQUENCY (top 8 by count) ---")
+    for row in symbol_freq:
+        n_sym = int(row["n"])
+        w_sym = int(row["wins"] or 0)
+        wr_sym = (w_sym / n_sym * 100) if n_sym else 0.0
+        lines.append(
+            f"{row['symbol']}: {n_sym} trades, {w_sym} wins, {wr_sym:.1f}% win rate"
+        )
+    lines.append("")
+
+    lines.append("--- TIMEFRAME DISTRIBUTION ---")
+    for row in tf_freq:
+        n_tf = int(row["n"])
+        w_tf = int(row["wins"] or 0)
+        wr_tf = (w_tf / n_tf * 100) if n_tf else 0.0
+        lines.append(
+            f"{row['timeframe'] or '(none)'}: {n_tf} trades, {w_tf} wins, {wr_tf:.1f}% win rate"
+        )
+    lines.append("")
+
+    lines.append("--- MONTHLY DISTRIBUTION ---")
+    for row in month_freq:
+        n_m = int(row["n"])
+        w_m = int(row["wins"] or 0)
+        wr_m = (w_m / n_m * 100) if n_m else 0.0
+        lines.append(
+            f"{row['month']}: {n_m} trades, {w_m} wins, {wr_m:.1f}% win rate"
+        )
+    lines.append("")
+
     lines.append("--- 5 MOST RECENT TRADES ---")
     for r in recent:
         lines.append(_fmt_row(dict(r)))
