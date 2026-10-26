@@ -182,6 +182,42 @@ def _ema_state(
     return f"20-EMA below 50-EMA ({gap_pct:+.2f}%)"
 
 
+def _bar_shape(b: dict[str, Any]) -> str:
+    """Describe one bar from its OHLC: close position in range,
+    body size, direction. Returns a plain phrase the article may
+    quote verbatim."""
+    try:
+        o, h, l, c = (float(b["open"]), float(b["high"]),
+                      float(b["low"]), float(b["close"]))
+    except (KeyError, TypeError, ValueError):
+        return "unknown"
+    rng = h - l
+    if rng <= 0:
+        return "flat"
+    close_pos = (c - l) / rng          # 0 = at low, 1 = at high
+    body = abs(c - o) / rng            # body as a fraction of range
+    direction = "up" if c > o else ("down" if c < o else "flat")
+    if close_pos >= 0.75:
+        where = "near the high"
+    elif close_pos <= 0.25:
+        where = "near the low"
+    else:
+        where = "mid-range"
+    if body >= 0.6:
+        size = "wide-range"
+    elif body <= 0.2:
+        size = "small-body"
+    else:
+        size = "moderate"
+    return f"{size} {direction} bar closing {where}"
+
+
+def _move_pct(a: float | None, b: float | None) -> float | None:
+    if a is None or b is None or a == 0:
+        return None
+    return (b - a) / a * 100.0
+
+
 def _prior_range(
     bars: list[dict[str, Any]],
     at_index: int,
@@ -410,6 +446,49 @@ async def build_technical_skeleton(
                          "Do NOT claim a VWAP value or a VWAP relationship.")
             lines.append("")
             _overlay_emitted = True
+
+            # ── BAR ACTION: computed descriptions of the entry bar
+            # and the bars after it. The model has repeatedly
+            # characterised these wrongly ("fell sharply" for a
+            # 0.5% drift); quote these phrases instead.
+            if 0 <= _entry_pos < len(_all_bars):
+                _eb = _all_bars[_entry_pos]
+                lines.append("BAR ACTION (computed; quote these phrases "
+                             "rather than characterising the bars yourself):")
+                lines.append(f"  entry bar: {_bar_shape(_eb)}")
+                _ec = None
+                try:
+                    _ec = float(_eb["close"])
+                except (KeyError, TypeError, ValueError):
+                    pass
+                _prev_close = _ec
+                for _j in range(_entry_pos + 1,
+                                min(_entry_pos + 3, len(_all_bars))):
+                    _nb = _all_bars[_j]
+                    try:
+                        _nc = float(_nb["close"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    # Move is measured bar-to-bar, not from the entry
+                    # close: "bar +1 +0.56%, bar +2 -0.56%" is the
+                    # sequence a reader expects.
+                    _mv = _move_pct(_prev_close, _nc)
+                    _cum = _move_pct(_ec, _nc)
+                    if _mv is not None:
+                        lines.append(
+                            f"  bar +{_j - _entry_pos}: {_bar_shape(_nb)}; "
+                            f"close moved {_mv:+.2f}% from the previous "
+                            f"bar ({_cum:+.2f}% from the entry close)"
+                        )
+                    _prev_close = _nc
+                if _hi is not None:
+                    _beyond = _move_pct(_hi, _ec)
+                    if _beyond is not None:
+                        lines.append(
+                            f"  breakout margin: entry close is "
+                            f"{_beyond:+.2f}% beyond the prior 10-bar high"
+                        )
+                lines.append("")
 
     if used_fallback:
         lines.append("TRADE CLUSTER: no trades matched the "

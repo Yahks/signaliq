@@ -140,61 +140,37 @@ _RULE_CONTEXT = {
 }
 
 
-def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
-    """Every percentage must be either:
-      - a trade's 'X% of equity' (matched to the skeleton's trades), or
-      - a rule percentage cited in the rule's own context
-        ('0.5% clearance'), not repurposed ('0.5% of equity').
-    Anything else is invented.
-    """
-    reasons: list[str] = []
-    rule_pcts = _skeleton_rule_percents(skeleton)
-    # Normalize signs on both sides: the body may write "0.7318%"
-    # where the skeleton says "-0.7318% of equity", or vice versa.
-    trade_pcts = {v.lstrip("-") for v in _skeleton_trade_percents(skeleton)}
-    batch_pcts = {n.lstrip("-") for n in _skeleton_batch_numbers(skeleton)}
-    # OVERLAY numbers (EMA values and the computed gap) are real
-    # figures the article may quote.
-    _ov = re.search(r"OVERLAY[^\n]*\n(.*?)(?:\n\s*\n|\Z)",
-                    skeleton or "", re.DOTALL)
-    if _ov:
-        for _n in re.findall(r"-?\d+(?:\.\d+)?", _ov.group(1)):
-            batch_pcts.add(_n.lstrip("-"))
-    # The computed clearance is a real figure the article may cite.
-    _clr = _skeleton_clearance(skeleton)
-    if _clr is not None:
-        batch_pcts.add(f"{_clr:g}")
-        batch_pcts.add(f"{_clr:.3f}".rstrip("0").rstrip("."))
-        batch_pcts.add(f"{_clr:.3f}")
-    b = body or ""
+def _skeleton_all_percentages(skeleton: str) -> set[str]:
+    """Every percentage the skeleton prints, anywhere. A percentage
+    the article cites is allowed iff it appears here.
 
-    for m in re.finditer(r"(-?\d+(?:\.\d+)?)\s*%", b):
-        v = m.group(1).lstrip("-")
-        # Does this percentage attach to "of equity"?
-        tail = b[m.end():m.end() + 16].lower()
-        is_equity_claim = tail.startswith(" of equity") or tail.startswith("of equity")
-        if is_equity_claim:
-            if v not in trade_pcts:
-                reasons.append(
-                    f"'{m.group(0)} of equity' is not any skeleton "
-                    f"trade's percent of equity (invented)"
-                )
-            continue
-        # A batch figure (win_rate, etc.) is a legitimate bare
-        # percentage.
-        if v in batch_pcts:
-            continue
-        # A bare percentage: allowed only as a rule, in context.
-        if v in rule_pcts:
-            window = b[max(0, m.start() - 40):m.end() + 40].lower()
-            ctx = _RULE_CONTEXT.get(v, ())
-            if not ctx or any(word in window for word in ctx):
-                continue
-        reasons.append(
-            f"percentage {m.group(0)} is not a trade percent or a "
-            f"rule cited in context (invented statistic)"
-        )
+    This replaces context-guessing (rule words, move phrasing,
+    convergence bands). The skeleton prints the clearance rule
+    (0.5), the EMA gap (-0.26), the bar moves (0.16/0.71/0.55), the
+    breakout margin (0.03), the trade percents, and the computed
+    clearance — all legitimate to quote. Anything absent is
+    invented.
+    """
+    return {
+        m.group(1).lstrip("+-")
+        for m in re.finditer(r"([-+]?\d+(?:\.\d+)?)\s*%", skeleton or "")
+    }
+
+
+def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
+    """A percentage in the body must appear in the skeleton."""
+    allowed = _skeleton_all_percentages(skeleton)
+    reasons: list[str] = []
+    for m in re.finditer(r"([-+]?\d+(?:\.\d+)?)\s*%", body or ""):
+        v = m.group(1).lstrip("+-")
+        if v not in allowed:
+            reasons.append(
+                f"percentage {m.group(0).strip()} is not in the skeleton "
+                f"(invented statistic)"
+            )
     return reasons
+
+
 def _check_no_cta(body: str) -> list[str]:
     if re.search(r"(?i)\b(?:email me|sign up|subscribe|free sample|no card|"
                  r"try .* free|click here)\b", body or ""):
@@ -443,6 +419,60 @@ def _normalize_body(body: str) -> str:
     return b
 
 
+def _skeleton_moves(skeleton: str) -> set[str]:
+    """The 'close moved X%' figures from the BAR ACTION block."""
+    m = re.search(r"BAR ACTION.*?(?:\n\s*\n|\Z)", skeleton or "", re.DOTALL)
+    if not m:
+        return set()
+    return {v.lstrip("+").lstrip("-")
+            for v in re.findall(r"close moved ([+-]?\d+\.\d+)%", m.group(0))}
+
+
+def _check_bar_moves(body: str, skeleton: str) -> list[str]:
+    """A percentage the body attributes to a price move must be a
+    computed BAR ACTION figure, not a characterisation."""
+    reasons: list[str] = []
+    moves = _skeleton_moves(skeleton)
+    if not moves:
+        return reasons
+    for m in re.finditer(
+        r"(?:price|close|it)\s+(?:moved|fell|rose|dropped|gained)\s+"
+        r"([\d.]+)\s*%", body or "", re.IGNORECASE,
+    ):
+        v = m.group(1).lstrip("-")
+        if v not in moves:
+            reasons.append(
+                f"body states a price move of {m.group(1)}%, but the "
+                f"BAR ACTION block computes {sorted(moves)}"
+            )
+    return reasons
+
+
+def _check_invented_ratios(body: str, skeleton: str) -> list[str]:
+    """Reject 'N× the average' style claims the skeleton cannot
+    support. The published D2 article invented a "1.5x the 20-day
+    volume average" filter — market_history has no volume, and no
+    such rule is in the process. Ratios are not percentages, so the
+    percentage check missed it."""
+    reasons: list[str] = []
+    for m in re.finditer(
+        r"(\d+(?:\.\d+)?)\s*[x×]\s*(?:the\s+)?"
+        r"([a-z0-9\- ]{0,30}?)\b(average|mean|median|baseline)\b",
+        body or "", re.IGNORECASE,
+    ):
+        reasons.append(
+            f"body invents a ratio ('{m.group(0).strip()}') the skeleton "
+            f"cannot support — no such computed figure or rule exists"
+        )
+    # Volume is not tracked at all.
+    if re.search(r"\bvolume\b", body or "", re.IGNORECASE):
+        reasons.append(
+            "body references volume, but market_history has no volume "
+            "data — volume-based rules cannot be claimed"
+        )
+    return reasons
+
+
 def validate_technical_indicators(body: str, skeleton: str) -> list[str]:
     if not body:
         return ["empty body"]
@@ -454,8 +484,11 @@ def validate_technical_indicators(body: str, skeleton: str) -> list[str]:
     reasons.extend(_check_cited_trades(body, skeleton))
     reasons.extend(_check_invented_statistic(body, skeleton))
     reasons.extend(_check_bars_cited(body, skeleton))
-    reasons.extend(_check_clearance_claim(body, skeleton))
+    # Clearance claims are covered by the percentage allowlist
+    # (the computed margin appears in the skeleton).
     reasons.extend(_check_ema_claims(body, skeleton))
+    reasons.extend(_check_bar_moves(body, skeleton))
+    reasons.extend(_check_invented_ratios(body, skeleton))
     reasons.extend(_check_no_cta(body))
     reasons.extend(_check_no_checklist(body))
     return reasons

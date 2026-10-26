@@ -74,6 +74,10 @@ values and the relationship the OVERLAY block reports.
   - If the skeleton flags a clearance shortfall, name it: the
     entry did not clear the prior 10-bar high by the required
     0.5%.
+  - The BAR ACTION block states each bar's shape and the move
+    from the previous bar. Quote those phrases. Do NOT
+    characterise a move in your own words ("fell sharply",
+    "surged") — the computed percentages are the fact.
 
 Every diagnostic cites a different trade or observation. Every
 fix is a before/after: what the trader used to do, what they do
@@ -201,9 +205,27 @@ async def generate(
                 entry_time=subject_trade.get("traded_at"),
             )
             if _url:
-                post.body = post.body.rstrip() + f"\n\n![{subject_trade.get('symbol')} chart]({_url})\n"
+                _img = f"![{subject_trade.get('symbol')} chart]({_url})"
+                _paras = post.body.split("\n\n")
+                # Insert above the diagnostics list (the first
+                # paragraph whose lines start with "- "), so the
+                # reader sees the candles before reading about the
+                # trades. Fall back to above the mechanism
+                # (third paragraph) if no list is found.
+                _idx = None
+                for _i, _par in enumerate(_paras):
+                    _lines = [_ln for _ln in _par.splitlines() if _ln.strip()]
+                    if _lines and all(_ln.lstrip().startswith("-")
+                                      for _ln in _lines):
+                        _idx = _i
+                        break
+                if _idx is None:
+                    _idx = min(2, len(_paras))
+                _paras.insert(_idx, _img)
+                post.body = "\n\n".join(_paras)
                 log.info("technical_indicators.chart_inserted",
-                         symbol=subject_trade.get("symbol"), url=_url)
+                         symbol=subject_trade.get("symbol"), url=_url,
+                         position=_idx)
         except Exception as _ce:
             log.warning("technical_indicators.chart_failed",
                         error=str(_ce)[:200])
