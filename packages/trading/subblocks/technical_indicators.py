@@ -83,6 +83,14 @@ Every diagnostic cites a different trade or observation. Every
 fix is a before/after: what the trader used to do, what they do
 now, and the arithmetic in words.
 
+CHART DISCUSSION. The BARS, OVERLAY and BAR ACTION blocks are
+the primary evidence. Use them to explain what the price actually
+did — the entry bar's shape, how the next bars moved, whether the
+breakout held or reversed, what the EMA state was at the entry.
+Quote the computed phrases and values. Lead the analysis from the
+chart; use the rule arithmetic only to explain why the chart
+mattered.
+
 RULES. You may cite only percentages that appear in the RULES
 block (current process), a trade's percent of equity, or a batch
 figure. Do NOT invent a new threshold ("0.2% above the 50-EMA",
@@ -134,11 +142,33 @@ async def generate(
     )
     process_excerpt = await get_process_excerpt(
         session, org_id, coord["dimension_id"], instrument_type="stock",
-    
+        current_process_only=True,
     )
+
+    # Pick a symbol, generate its trades, and use one as the subject
+    # (the same flow market_analysis uses). Guarantees a trade log
+    # entry for the picked coordinate.
+    from ..scrapers.trade_generator import ensure_trades_for
+    from .market_analysis_rotation import pick_unused_trade
+    from .market_analysis_rotation_stock import pick_stock_and_timeframe
+
+    _subject = None
+    _stock_pick = await pick_stock_and_timeframe(
+        session, org_id=org_id, subblock_id=subblock["id"],
+    )
+    if _stock_pick is not None:
+        _sym, _tf, _ftype, _fsection = _stock_pick
+        await session.commit()
+        await ensure_trades_for(
+            session, org_id=org_id, symbol=_sym, timeframe=_tf, count=5,
+        )
+        _subject = await pick_unused_trade(
+            session, org_id=org_id, symbol=_sym, timeframe=_tf,
+        )
 
     skeleton, subject_trade = await build_technical_skeleton(
         session, org_id, coord, process_excerpt=process_excerpt or "",
+        subject_trade=_subject,
     )
     user_prompt = PROMPT_TEMPLATE.format(
         dimension_label=coord["dimension_label"],
@@ -181,6 +211,7 @@ async def generate(
         target_words=target_words,
         form=None, tone=None, voice=None,
         skip_verify=True,
+        use_cache=False,
     )
 
     # ── Render the subject trade's candlestick and insert it ──

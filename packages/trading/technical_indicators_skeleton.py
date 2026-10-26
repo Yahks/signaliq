@@ -64,15 +64,36 @@ def _fmt(v: Any, places: int = 2) -> str:
 
 async def _recent_trades(
     session: AsyncSession, org_id: str, limit: int = 20,
+    cluster: float | None = None,
 ) -> list[dict[str, Any]]:
-    rows = (await session.execute(sql_text("""
+    """Trades for this article, preferring unused ones.
+
+    When `cluster` is given (0.75 or 1.75), the stop multiple is
+    filtered in SQL so the subject always comes from the
+    coordinate's own regime. No cross-cluster fallback: a
+    coordinate with no matching trade returns an empty list and
+    the caller reports no material, rather than building an
+    article on a mixed set (which produced a D2 entry-logic
+    article citing a 1.75xATR trade).
+    """
+    params: dict[str, Any] = {"oid": org_id, "n": limit}
+    cluster_sql = ""
+    if cluster is not None:
+        cluster_sql = (
+            "AND ABS(entry - stop) / NULLIF(atr_at_entry, 0) "
+            "BETWEEN :lo AND :hi "
+        )
+        params["lo"] = cluster - CLUSTER_TOLERANCE
+        params["hi"] = cluster + CLUSTER_TOLERANCE
+    rows = (await session.execute(sql_text(f"""
         SELECT symbol, timeframe, direction, contracts, entry, stop,
                exit, result, atr_at_entry, traded_at, setup
         FROM trade_log
         WHERE org_id = :oid AND deleted_at IS NULL
-        ORDER BY traded_at DESC
+          {cluster_sql}
+        ORDER BY (used_in_article_id IS NULL) DESC, traded_at DESC
         LIMIT :n
-    """), {"oid": org_id, "n": limit})).mappings().all()
+    """), params)).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -253,6 +274,7 @@ async def build_technical_skeleton(
     org_id: str,
     coord: dict[str, Any],
     process_excerpt: str = "",
+    subject_trade: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """Return (skeleton_text, subject_trade).
 
@@ -262,23 +284,21 @@ async def build_technical_skeleton(
     dim = coord.get("dimension_id", "")
     cluster = DIMENSION_CLUSTER.get(dim)
 
-    trades = await _recent_trades(session, org_id)
     today = datetime.now(timezone.utc).date()
 
-    # Filter to the dimension's cluster. If no cluster for this
-    # dimension, or nothing matches, fall back honestly to all
-    # five and state both regimes.
-    filtered: list[dict[str, Any]] = []
-    if cluster is not None:
-        for t in trades:
-            c = compute_trade(t)
-            m = c.get("stop_atr_multiple")
-            if m is not None and abs(float(m) - cluster) <= CLUSTER_TOLERANCE:
-                filtered.append(t)
-    used_fallback = not filtered
-    if used_fallback:
-        filtered = list(trades)
+    # The subject is supplied by the caller: it was generated for a
+    # freshly picked symbol (pick_stock_and_timeframe ->
+    # ensure_trades_for -> pick_unused_trade). No cluster filtering
+    # and no "newest trades in the log" query.
+    if subject_trade is None:
+        _msg = (
+            "TECHNICAL INDICATOR SKELETON\n\n"
+            f"COORDINATE: {coord.get('coord','?')}\n"
+            "NO TRADE SUPPLIED. Do not write an article."
+        )
+        return _msg, None
 
+    filtered = [subject_trade]
     batch = compute_batch(filtered)
     _dates = [t.get("traded_at") for t in filtered
               if isinstance(t.get("traded_at"), datetime)]
@@ -490,15 +510,9 @@ async def build_technical_skeleton(
                         )
                 lines.append("")
 
-    if used_fallback:
-        lines.append("TRADE CLUSTER: no trades matched the "
-                     f"{cluster}xATR cluster; citing ALL {len(filtered)} "
-                     "recent trades. These mix two stop regimes — "
-                     "state both, do not claim one rule.")
-    else:
-        lines.append(f"TRADE CLUSTER: {cluster}xATR — the article "
-                     f"cites ONLY the {len(filtered)} trades below, "
-                     f"all of which used a {cluster}xATR stop.")
+    lines.append(f"TRADE CLUSTER: {cluster}xATR — the article "
+                 f"cites ONLY the {len(filtered)} trades below, "
+                 f"all of which used a {cluster}xATR stop.")
     lines.append("")
 
     lines.append("TRADES (the only trades you may cite):")

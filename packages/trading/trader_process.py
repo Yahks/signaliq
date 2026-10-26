@@ -85,8 +85,14 @@ async def get_process_excerpt(
     session: AsyncSession, org_id: str, dimension_id: str,
     include_synthetic: bool = False,
     instrument_type: str | None = None,
+    current_process_only: bool = False,
 ) -> str:
     """Return a bounded excerpt of the trader's process + history.
+
+    current_process_only: skip RECENT TRADES, TRADE RULE ANALYSIS and
+    PRIOR VERSIONS, returning only the CURRENT PROCESS sections. Used
+    by subblocks whose skeleton already carries the trades (e.g.
+    technical_indicators), to stay under provider prompt limits.
 
     Groq's gpt-oss-120b free tier has an 8,000 tokens-per-minute
     limit. The full process + 5 history versions is ~32,000 chars
@@ -193,7 +199,7 @@ async def get_process_excerpt(
 
     parts: list[str] = []
 
-    if recent:
+    if recent and not current_process_only:
         parts.append("=== RECENT TRADES (newest first) ===")
         for r in recent:
             date = r["traded_at"].strftime("%Y-%m-%d") if r["traded_at"] else "unknown"
@@ -226,7 +232,7 @@ async def get_process_excerpt(
             session, org_id, limit=5,
             include_synthetic=include_synthetic,
         )
-        if analysis:
+        if analysis and not current_process_only:
             parts.append("")
             parts.append(analysis)
     except Exception as exc:
@@ -271,7 +277,7 @@ async def get_process_excerpt(
         LIMIT :n
     """), {"oid": org_id, "n": MAX_HISTORY_VERSIONS})).all()
 
-    if history:
+    if history and not current_process_only:
         parts.append("")
         parts.append(
             "=== PRIOR VERSIONS (evolution context only) ==="

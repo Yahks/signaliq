@@ -160,9 +160,19 @@ def _skeleton_all_percentages(skeleton: str) -> set[str]:
 def _check_invented_statistic(body: str, skeleton: str) -> list[str]:
     """A percentage in the body must appear in the skeleton."""
     allowed = _skeleton_all_percentages(skeleton)
+
+    def _norm(x: str) -> str:
+        # "0" and "0.0" are the same number; the batch line prints
+        # "0.0%" while the article may write "0%".
+        try:
+            return f"{float(x):g}"
+        except ValueError:
+            return x
+
+    allowed = {_norm(a) for a in allowed}
     reasons: list[str] = []
     for m in re.finditer(r"([-+]?\d+(?:\.\d+)?)\s*%", body or ""):
-        v = m.group(1).lstrip("+-")
+        v = _norm(m.group(1).lstrip("+-"))
         if v not in allowed:
             reasons.append(
                 f"percentage {m.group(0).strip()} is not in the skeleton "
@@ -250,6 +260,16 @@ def _check_bars_cited(body: str, skeleton: str) -> list[str]:
     for b in bars:
         for k in ("open", "high", "low", "close"):
             allowed.add(round(b[k], 2))
+    # OVERLAY prices (prior-day high/low, EMA values) are real
+    # figures the article may cite as prices.
+    _ov = re.search(r"OVERLAY[^\n]*\n(.*?)(?:\n\s*\n|\Z)",
+                    skeleton or "", re.DOTALL)
+    if _ov:
+        for _n in re.findall(r"\d+\.\d+", _ov.group(1)):
+            try:
+                allowed.add(round(float(_n), 2))
+            except ValueError:
+                pass
     # Only inspect numbers that sit next to an OHLC-ish word, so we
     # don't flag ordinary prose numbers.
     for m in re.finditer(
@@ -258,6 +278,10 @@ def _check_bars_cited(body: str, skeleton: str) -> list[str]:
         body or "", re.IGNORECASE,
     ):
         v = round(float(m.group(2).replace(",", "")), 2)
+        if v < 1.0:
+            # A price below 1 is almost certainly a percentage
+            # fragment ("0.048%") mis-read as a candle value.
+            continue
         if not any(abs(v - a) <= 0.02 for a in allowed):
             reasons.append(
                 f"candle value {m.group(1)} {m.group(2)} is not in the "
